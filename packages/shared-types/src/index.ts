@@ -1,0 +1,8 @@
+export type Role = 'ADMIN' | 'MEMBER'
+export type AccountType = 'CHECKING' | 'SAVINGS' | 'JOINT' | 'INVESTMENT' | 'CASH'
+export type TransactionType = 'INCOME' | 'EXPENSE'
+export type TransactionStatus = 'DRAFT' | 'CONFIRMED' | 'DELETED'
+export type DraftSource = 'MANUAL' | 'AI_TEXT' | 'AI_VOICE' | 'AI_RECEIPT' | 'PDF' | 'OFX' | 'CSV' | 'OPEN_FINANCE'
+export type CategoryType = 'INCOME' | 'EXPENSE' | 'BOTH'
+export type AIIntent = 'expense' | 'income' | 'internal_transfer' | 'unknown'
+export type ReconciliationItemStatus = 'MATCHED' | 'DIVERGENT' | 'MISSING' | 'UNMATCHED'
