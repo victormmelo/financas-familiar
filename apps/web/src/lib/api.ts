@@ -1,0 +1,81 @@
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+
+let accessToken: string | null = null
+
+export function setAccessToken(token: string | null) {
+  accessToken = token
+}
+
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
+async function refreshToken(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    accessToken = data.accessToken
+    return accessToken
+  } catch {
+    return null
+  }
+}
+
+export async function apiFetch<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+  retry = true,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  }
+
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`
+  }
+
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  })
+
+  if (res.status === 401 && retry) {
+    const newToken = await refreshToken()
+    if (newToken) {
+      return apiFetch<T>(path, options, false)
+    }
+    // Clear token and redirect to login
+    accessToken = null
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth/login'
+    }
+    throw new Error('Não autenticado')
+  }
+
+  if (res.status === 204) {
+    return undefined as T
+  }
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    throw new Error(data.message ?? 'Erro na requisição')
+  }
+
+  return data as T
+}
+
+export const api = {
+  get: <T>(path: string) => apiFetch<T>(path, { method: 'GET' }),
+  post: <T>(path: string, body?: unknown) =>
+    apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+  patch: <T>(path: string, body?: unknown) =>
+    apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
+}

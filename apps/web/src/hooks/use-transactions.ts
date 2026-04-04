@@ -1,0 +1,110 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+
+export interface Transaction {
+  id: string
+  type: 'INCOME' | 'EXPENSE'
+  status: 'DRAFT' | 'CONFIRMED' | 'DELETED'
+  amount: number
+  description: string
+  notes?: string
+  date: string
+  source: string
+  accountId: string
+  account?: { id: string; name: string }
+  categoryId?: string
+  category?: { id: string; name: string; color?: string }
+  createdById: string
+  createdAt: string
+}
+
+export interface TransactionFilters {
+  page?: number
+  limit?: number
+  accountId?: string
+  categoryId?: string
+  type?: 'INCOME' | 'EXPENSE'
+  status?: 'DRAFT' | 'CONFIRMED' | 'DELETED'
+  startDate?: string
+  endDate?: string
+}
+
+export interface TransactionListResponse {
+  data: Transaction[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+export function useTransactions(filters: TransactionFilters = {}) {
+  const params = new URLSearchParams()
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') params.set(k, String(v))
+  })
+  const qs = params.toString()
+
+  return useQuery({
+    queryKey: ['transactions', filters],
+    queryFn: () => api.get<TransactionListResponse>(`/transactions${qs ? `?${qs}` : ''}`),
+  })
+}
+
+export function useCreateTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: {
+      accountId: string
+      categoryId?: string
+      type: string
+      amount: number
+      description: string
+      notes?: string
+      date: string
+      source?: string
+    }) => api.post<Transaction>('/transactions', data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useUpdateTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; categoryId?: string | null; amount?: number; description?: string; notes?: string | null; date?: string }) =>
+      api.patch<Transaction>(`/transactions/${id}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useConfirmTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/transactions/${id}/confirm`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transactions'] }),
+  })
+}
+
+export function useBulkConfirmTransactions() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => api.post('/transactions/bulk-confirm', { ids }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transactions'] }),
+  })
+}
+
+export function useDeleteTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/transactions/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
