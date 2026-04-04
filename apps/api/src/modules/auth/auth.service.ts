@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt'
 import crypto from 'node:crypto'
 import { prisma } from '../../lib/prisma.js'
 import { redis } from '../../lib/redis.js'
+import { emailQueue } from '../../jobs/email.queue.js'
 import type { FastifyInstance } from 'fastify'
 import type {
   RegisterInput,
@@ -173,8 +174,16 @@ export async function invite(
     data: { familyId, invitedById, email: input.email, token, expiresAt },
   })
 
-  // TODO: dispatch email via BullMQ
-  app.log.info(`[Auth] Invite created for ${input.email}, token: ${token}`)
+  const family = await prisma.family.findUniqueOrThrow({ where: { id: familyId } })
+  const invitedBy = await prisma.user.findUniqueOrThrow({ where: { id: invitedById } })
+
+  await emailQueue.add('send-invite', {
+    to: input.email,
+    inviteToken: token,
+    familyName: family.name,
+    invitedByName: invitedBy.name,
+    appUrl: process.env.APP_URL ?? 'http://localhost:3000',
+  })
 
   return { token }
 }
