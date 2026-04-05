@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import swagger from '@fastify/swagger'
-import swaggerUi from '@fastify/swagger-ui'
+import scalarApiReference from '@scalar/fastify-api-reference'
 
 export async function registerSwagger(app: FastifyInstance) {
   await app.register(swagger, {
@@ -22,11 +22,14 @@ export async function registerSwagger(app: FastifyInstance) {
     },
   })
 
-  await app.register(swaggerUi, {
+  app.get('/openapi.json', { schema: { hide: true } }, () => app.swagger())
+
+  await app.register(scalarApiReference, {
     routePrefix: '/docs',
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: true,
+    configuration: {
+      spec: { url: '/openapi.json' },
+      theme: 'purple',
+      defaultHttpClient: { targetKey: 'javascript', clientKey: 'fetch' },
     },
   })
 }

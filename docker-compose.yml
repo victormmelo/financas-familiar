@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-financas}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-financas_password}
       POSTGRES_DB: ${POSTGRES_DB:-financas_familiar}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -16,19 +14,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - financas_network
+    network_mode: host
 
   redis:
     image: redis:7-alpine
     container_name: financas_redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-redis_password}
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - financas_network
+    network_mode: host
 
   minio:
     image: minio/minio:latest
@@ -37,28 +31,67 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_password}
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "9001:9001"
     volumes:
       - minio_data:/data
-    networks:
-      - financas_network
+    network_mode: host
 
   mailhog:
     image: mailhog/mailhog:latest
     container_name: financas_mailhog
-    ports:
-      - "1025:1025"
-      - "8025:8025"
-    networks:
-      - financas_network
+    network_mode: host
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: financas_api
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3001}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://financas:financas_password@localhost:5432/financas_familiar}
+      REDIS_URL: ${REDIS_URL:-redis://:redis_password@localhost:6379}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://localhost:9000}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minio_admin}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minio_password}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-financas-familiar}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost:9000/financas-familiar}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@financas-familiar.local}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    network_mode: host
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: financas_web
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Família Finance}
+    depends_on:
+      - api
+    network_mode: host
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-
-networks:
-  financas_network:
-    driver: bridge
