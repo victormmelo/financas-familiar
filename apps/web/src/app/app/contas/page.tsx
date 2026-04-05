@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Power } from 'lucide-react'
+import { Plus, Pencil, Trash2, Power, Wallet } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { AccountForm } from '@/components/forms/account-form'
 import { useAccounts, useDeleteAccount, useUpdateAccount, type Account } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
@@ -47,14 +48,14 @@ export default function ContasPage() {
   const totalBalance = active.reduce((s, a) => s + a.balance, 0)
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-8 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-500">Saldo total das contas ativas</p>
-          <p className={`text-3xl font-bold ${totalBalance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm text-muted-foreground">Saldo total das contas ativas</span>
+          <span className={`font-mono text-3xl font-semibold tabular-nums ${totalBalance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
             {formatCurrency(totalBalance)}
-          </p>
+          </span>
         </div>
         <Button onClick={() => setShowForm(true)}>
           <Plus className="h-4 w-4" /> Nova Conta
@@ -62,26 +63,46 @@ export default function ContasPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-center py-10 text-gray-500">Carregando...</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-10 w-10 rounded-full" />
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-3 w-20" />
+                    </div>
+                  </div>
+                </div>
+                <Skeleton className="h-8 w-32 mb-4" />
+                <Skeleton className="h-8 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : (
         <>
           {/* Active accounts */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {active.map((account) => (
-              <AccountCard
-                key={account.id}
-                account={account}
-                onEdit={() => { setEditingAccount(account); setShowForm(true) }}
-                onDelete={() => setDeleteId(account.id)}
-                onToggle={() => toggleActive(account)}
-              />
-            ))}
-          </div>
+          {active.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {active.map((account) => (
+                <AccountCard
+                  key={account.id}
+                  account={account}
+                  onEdit={() => { setEditingAccount(account); setShowForm(true) }}
+                  onDelete={() => setDeleteId(account.id)}
+                  onToggle={() => toggleActive(account)}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Inactive */}
           {inactive.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-3">Contas Inativas</h3>
+            <div className="flex flex-col gap-4">
+              <h3 className="text-sm font-medium text-muted-foreground">Contas Inativas</h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {inactive.map((account) => (
                   <AccountCard
@@ -98,8 +119,14 @@ export default function ContasPage() {
 
           {accounts?.length === 0 && (
             <Card>
-              <CardContent className="py-16 text-center">
-                <p className="text-gray-500 mb-4">Você ainda não tem contas cadastradas</p>
+              <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <Wallet className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="font-medium">Nenhuma conta cadastrada</p>
+                  <p className="text-sm text-muted-foreground">Adicione sua primeira conta bancária</p>
+                </div>
                 <Button onClick={() => setShowForm(true)}>
                   <Plus className="h-4 w-4" /> Criar primeira conta
                 </Button>
@@ -144,28 +171,28 @@ function AccountCard({
           <div className="flex items-center gap-3">
             <div
               className="h-10 w-10 rounded-full flex items-center justify-center text-white font-bold"
-              style={{ backgroundColor: account.color ?? '#3b82f6' }}
+              style={{ backgroundColor: account.color ?? '#6366f1' }}
             >
               {account.name.charAt(0)}
             </div>
             <div>
-              <p className="font-semibold text-gray-900">{account.name}</p>
-              <p className="text-xs text-gray-500">{getAccountTypeLabel(account.type)}</p>
+              <p className="font-semibold text-foreground">{account.name}</p>
+              <p className="text-xs text-muted-foreground">{getAccountTypeLabel(account.type)}</p>
             </div>
           </div>
           {!account.isActive && <Badge variant="secondary">Inativa</Badge>}
         </div>
-        <p className={`text-2xl font-bold mb-4 ${account.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+        <p className={`font-mono text-2xl font-semibold tabular-nums mb-4 ${account.balance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
           {formatCurrency(account.balance)}
         </p>
-        <div className="flex items-center gap-1 justify-end border-t pt-3">
-          <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600" onClick={onEdit} title="Editar">
+        <div className="flex items-center gap-1 justify-end border-t border-border pt-3">
+          <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground" onClick={onEdit} title="Editar">
             <Pencil className="h-4 w-4" />
           </button>
-          <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-yellow-600" onClick={onToggle} title={account.isActive ? 'Desativar' : 'Ativar'}>
+          <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-amber-600" onClick={onToggle} title={account.isActive ? 'Desativar' : 'Ativar'}>
             <Power className="h-4 w-4" />
           </button>
-          <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500" onClick={onDelete} title="Excluir">
+          <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600" onClick={onDelete} title="Excluir">
             <Trash2 className="h-4 w-4" />
           </button>
         </div>

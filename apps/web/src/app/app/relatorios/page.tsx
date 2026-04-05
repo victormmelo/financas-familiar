@@ -9,6 +9,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/
 import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useReports, useCreateReport, type Report } from '@/hooks/use-reports'
 import { useToast } from '@/components/ui/toast'
 import { useQueryClient } from '@tanstack/react-query'
@@ -49,9 +50,9 @@ export default function RelatoriosPage() {
   const reports = data?.data ?? []
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Relatórios são gerados de forma assíncrona</p>
+        <p className="text-sm text-muted-foreground">Relatórios são gerados de forma assíncrona</p>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ['reports'] })}>
             <RefreshCw className="h-4 w-4" /> Atualizar
@@ -65,26 +66,44 @@ export default function RelatoriosPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <p className="text-center py-10 text-gray-500">Carregando...</p>
+            <div className="divide-y divide-border">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-6 py-4">
+                  <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                </div>
+              ))}
+            </div>
           ) : reports.length === 0 ? (
-            <div className="py-16 text-center">
-              <FileText className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 mb-4">Nenhum relatório gerado</p>
-              <Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4" /> Gerar primeiro relatório</Button>
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-medium">Nenhum relatório gerado</p>
+                <p className="text-sm text-muted-foreground">Gere DREs, fluxos de caixa e análises patrimoniais</p>
+              </div>
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4" /> Gerar primeiro relatório
+              </Button>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-border">
               {reports.map((r) => (
                 <div key={r.id} className="flex items-center justify-between px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-blue-50 flex items-center justify-center">
-                      <FileText className="h-4 w-4 text-blue-600" />
+                    <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <FileText className="h-4 w-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">
+                      <p className="text-sm font-medium text-foreground">
                         {REPORT_TYPES.find((t) => t.value === r.type)?.label ?? r.type}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {new Date(r.createdAt).toLocaleString('pt-BR')}
                       </p>
                     </div>
