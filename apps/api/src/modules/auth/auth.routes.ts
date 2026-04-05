@@ -12,7 +12,9 @@ const REFRESH_COOKIE = 'refreshToken'
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /auth/register
-  fastify.post('/register', async (request, reply) => {
+  fastify.post('/register', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const input = registerSchema.parse(request.body)
     const { user, tokens } = await authService.register(fastify, input)
 
@@ -28,7 +30,9 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // POST /auth/login
-  fastify.post('/login', async (request, reply) => {
+  fastify.post('/login', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const input = loginSchema.parse(request.body)
     const { user, tokens } = await authService.login(fastify, input)
 

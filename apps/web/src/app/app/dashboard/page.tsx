@@ -19,6 +19,7 @@ import {
 import { TrendingUp, TrendingDown, Wallet, CreditCard, Target, PieChart as PieIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ProgressBar } from '@/components/ui/progress-bar'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useTransactions } from '@/hooks/use-transactions'
 import { useBudgets } from '@/hooks/use-budgets'
@@ -187,12 +188,16 @@ export default function DashboardPage() {
                         {formatCurrency(b.spentAmount)} / {formatCurrency(b.limitAmount)}
                       </span>
                     </div>
-                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${b.isOverBudget ? 'bg-red-500' : b.usagePercent >= 80 ? 'bg-yellow-400' : 'bg-blue-500'}`}
-                        style={{ width: `${Math.min(b.usagePercent, 100)}%` }}
-                      />
-                    </div>
+                    <ProgressBar
+                      value={b.usagePercent}
+                      barClassName={
+                        b.isOverBudget
+                          ? 'bg-rose-500'
+                          : b.usagePercent >= 80
+                            ? 'bg-amber-400'
+                            : 'bg-primary'
+                      }
+                    />
                   </div>
                 ))}
               </div>
@@ -218,12 +223,7 @@ export default function DashboardPage() {
                       <span className="font-medium text-gray-700">{g.name}</span>
                       <span className="text-gray-600">{g.progressPercent.toFixed(0)}%</span>
                     </div>
-                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-blue-500 transition-all"
-                        style={{ width: `${Math.min(g.progressPercent, 100)}%` }}
-                      />
-                    </div>
+                    <ProgressBar value={g.progressPercent} barClassName="bg-primary" />
                     <p className="text-xs text-gray-500 mt-1">
                       {formatCurrency(g.currentAmount)} de {formatCurrency(g.targetAmount)}
                     </p>
