@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
+    "dev:mcp": "npm run dev --workspace=apps/mcp",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:studio": "npm run db:studio --workspace=apps/api",
     "db:generate": "npm run db:generate --workspace=apps/api",

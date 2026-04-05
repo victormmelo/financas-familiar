@@ -17,6 +17,7 @@ import creditCardsRoutes from './modules/credit-cards/credit-cards.routes.js'
 import goalsRoutes from './modules/goals/goals.routes.js'
 import budgetsRoutes from './modules/budgets/budgets.routes.js'
 import reportsRoutes from './modules/reports/reports.routes.js'
+import mcpTokensRoutes from './modules/mcp-tokens/mcp-tokens.routes.js'
 import './jobs/email.worker.js'
 import './jobs/reports.worker.js'
 import './jobs/recurring-transactions.worker.js'
@@ -73,6 +74,7 @@ const start = async () => {
     await app.register(goalsRoutes, { prefix: '/goals' })
     await app.register(budgetsRoutes, { prefix: '/budgets' })
     await app.register(reportsRoutes, { prefix: '/reports' })
+    await app.register(mcpTokensRoutes, { prefix: '/mcp-tokens' })
 
     await app.listen({ port: PORT, host: '0.0.0.0' })
   } catch (err) {
