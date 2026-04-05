@@ -2,26 +2,43 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    /* Military Operational Theme */
+    --background: 120 19% 6%;
+    --foreground: 120 27% 92%;
+    --card: 120 13% 9%;
+    --card-foreground: 120 27% 92%;
+    --popover: 120 12% 11%;
+    --popover-foreground: 120 27% 92%;
+    --primary: 82 40% 30%;
+    --primary-foreground: 120 27% 92%;
+    --secondary: 120 12% 11%;
+    --secondary-foreground: 120 6% 73%;
+    --muted: 120 8% 10%;
+    --muted-foreground: 120 5% 52%;
+    --accent: 120 13% 14%;
+    --accent-foreground: 120 6% 73%;
+    --destructive: 0 49% 32%;
+    --destructive-foreground: 0 75% 75%;
+    --border: 120 10% 25%;
+    --input: 120 11% 18%;
+    --ring: 133 96% 74%;
+    --radius: 0.25rem;
+
+    /* Operational semantic tokens */
+    --success-bg: #112417;
+    --success-border: #285E38;
+    --success-text: #8DDBA4;
+    --warning-bg: #2B240D;
+    --warning-border: #7A6416;
+    --warning-text: #E3CB67;
+    --danger-bg: #2A1212;
+    --danger-border: #7A2A2A;
+    --danger-text: #F08D8D;
+    --info-bg: #10202A;
+    --info-border: #28546A;
+    --info-text: #86C3E6;
+    --accent-bright: #7CFC98;
+    --accent-bright-soft: #63D985;
   }
 
   * {
@@ -31,6 +48,11 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: var(--font-sans), 'IBM Plex Sans', 'Inter', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  .font-mono {
+    font-family: var(--font-mono), 'JetBrains Mono', 'Roboto Mono', monospace;
   }
 }
