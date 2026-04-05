@@ -6,9 +6,40 @@ on:
   pull_request:
     branches: [main, dev]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ci:
-    name: CI Pipeline
+  # ── Job 1: Lint + Typecheck (rápido, sem serviços) ────────────────────────
+  quality:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  # ── Job 2: Testes unitários (com PostgreSQL e Redis) ──────────────────────
+  test:
+    name: Tests
     runs-on: ubuntu-latest
 
     services:
@@ -39,15 +70,15 @@ jobs:
     env:
       DATABASE_URL: postgresql://financas:financas_password@localhost:5432/financas_familiar_test
       REDIS_URL: redis://localhost:6379
-      JWT_ACCESS_SECRET: ci_jwt_access_secret
-      JWT_REFRESH_SECRET: ci_jwt_refresh_secret
+      JWT_ACCESS_SECRET: ci_jwt_access_secret_must_be_at_least_32_chars_long
+      JWT_REFRESH_SECRET: ci_jwt_refresh_secret_must_be_at_least_32_chars_long
+      COOKIE_SECRET: ci_cookie_secret_must_be_at_least_32_chars_long
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       NODE_ENV: test
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -58,11 +89,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
+      - name: Generate Prisma client
+        run: npm run db:generate
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Run migrations
+        run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 
-      - name: Test
+      - name: Run tests
         run: npm run test
+
+  # ── Job 3: Build (valida compilação TS + Next.js) ─────────────────────────
+  # Depende do quality para não desperdiçar minutos de CI em código com erros
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: quality
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Build all workspaces
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: http://localhost:3001

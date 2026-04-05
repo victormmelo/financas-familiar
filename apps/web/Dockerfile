@@ -16,6 +16,9 @@ COPY apps/web ./apps/web
 COPY packages/shared-types ./packages/shared-types
 COPY package.json ./
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* são baked em build time — passe via --build-arg no docker build
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build --workspace=apps/web
 
 # --- runner: serve the built app ---
