@@ -69,6 +69,20 @@ enum ReportStatus {
   FAILED
 }
 
+enum StatementSource {
+  OFX
+  CSV
+  MANUAL
+}
+
+enum StatementItemStatus {
+  PENDING
+  MATCHED
+  REJECTED
+  IGNORED
+  CONVERTED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model Family {
@@ -88,6 +102,8 @@ model Family {
   budgets      Budget[]
   reports      Report[]
   mcpTokens    McpToken[]
+  reconciliationSessions ReconciliationSession[]
+  statementItems         StatementItem[]
 
   @@map("families")
 }
@@ -106,6 +122,7 @@ model User {
   transactions Transaction[]
   invitesSent  FamilyInvite[] @relation("InvitedBy")
   mcpTokens    McpToken[]
+  reconciliationSessions ReconciliationSession[]
 
   @@map("users")
 }
@@ -143,7 +160,9 @@ model Account {
   transfersFrom Transfer[]   @relation("FromAccount")
   transfersTo   Transfer[]   @relation("ToAccount")
   goals         Goal[]
-  creditCardPayments CreditCardInvoice[]
+  creditCardPayments         CreditCardInvoice[]
+  reconciliationSessions     ReconciliationSession[]
+  statementItems             StatementItem[]
 
   @@map("accounts")
 }
@@ -196,6 +215,7 @@ model Transaction {
   transfer   Transfer?   @relation(fields: [transferId], references: [id])
   creditCard CreditCard? @relation(fields: [creditCardId], references: [id])
   draft      TransactionDraft?
+  statementItems StatementItem[]
 
   @@map("transactions")
 }
@@ -337,4 +357,53 @@ model McpToken {
   family Family @relation(fields: [familyId], references: [id])
 
   @@map("mcp_tokens")
+}
+
+model ReconciliationSession {
+  id          String          @id @default(uuid())
+  familyId    String          @map("family_id")
+  accountId   String          @map("account_id")
+  source      StatementSource
+  fileName    String?         @map("file_name")
+  startDate   DateTime?       @db.Date @map("start_date")
+  endDate     DateTime?       @db.Date @map("end_date")
+  createdById String          @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  family    Family        @relation(fields: [familyId], references: [id])
+  account   Account       @relation(fields: [accountId], references: [id])
+  createdBy User          @relation(fields: [createdById], references: [id])
+  items     StatementItem[]
+
+  @@map("reconciliation_sessions")
+}
+
+model StatementItem {
+  id                   String              @id @default(uuid())
+  familyId             String              @map("family_id")
+  accountId            String              @map("account_id")
+  sessionId            String?             @map("session_id")
+  type                 TransactionType
+  amount               Decimal             @db.Decimal(15, 2)
+  description          String
+  date                 DateTime            @db.Date
+  externalId           String?             @map("external_id") @db.VarChar(255)
+  status               StatementItemStatus @default(PENDING)
+  matchedTransactionId String?             @map("matched_transaction_id")
+  matchScore           Int?                @map("match_score")
+  ignoredAt            DateTime?           @map("ignored_at")
+  convertedAt          DateTime?           @map("converted_at")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  family             Family                 @relation(fields: [familyId], references: [id])
+  account            Account                @relation(fields: [accountId], references: [id])
+  session            ReconciliationSession? @relation(fields: [sessionId], references: [id])
+  matchedTransaction Transaction?           @relation(fields: [matchedTransactionId], references: [id])
+
+  @@unique([accountId, externalId])
+  @@index([familyId, accountId, date])
+  @@index([familyId, status])
+  @@map("statement_items")
 }
