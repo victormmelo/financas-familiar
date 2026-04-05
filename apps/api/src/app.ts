@@ -5,6 +5,8 @@ import jwt from '@fastify/jwt'
 import { registerSwagger } from './plugins/swagger.js'
 import { registerErrorHandler } from './plugins/error-handler.js'
 import { registerAuthenticate } from './plugins/authenticate.js'
+import { registerHelmet } from './plugins/helmet.js'
+import { registerRateLimit } from './plugins/rate-limit.js'
 import authRoutes from './modules/auth/auth.routes.js'
 import familyRoutes from './modules/family/family.routes.js'
 import accountsRoutes from './modules/accounts/accounts.routes.js'
@@ -17,6 +19,7 @@ import budgetsRoutes from './modules/budgets/budgets.routes.js'
 import reportsRoutes from './modules/reports/reports.routes.js'
 import './jobs/email.worker.js'
 import './jobs/reports.worker.js'
+import './jobs/recurring-transactions.worker.js'
 
 const app = Fastify({
   logger: {
@@ -35,6 +38,9 @@ const PORT = Number(process.env.PORT) || 3001
 const start = async () => {
   try {
     // Plugins
+    await registerHelmet(app)
+    await registerRateLimit(app)
+
     await app.register(cors, {
       origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
       credentials: true,
