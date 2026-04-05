@@ -36,16 +36,17 @@ export async function listBudgets(familyId: string, query: ListBudgetsInput) {
 
   return Promise.all(
     budgets.map(async (budget) => {
-      const spent = await getSpentAmount(familyId, budget.categoryId, month, year)
-      const limit = budget.limitAmount.toNumber()
-      const remaining = Math.max(limit - spent, 0)
-      const percentage = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0
+      const spentAmount = await getSpentAmount(familyId, budget.categoryId, month, year)
+      const limitAmount = budget.limitAmount.toNumber()
+      const remainingAmount = Math.max(limitAmount - spentAmount, 0)
+      const usagePercent = limitAmount > 0 ? Math.min((spentAmount / limitAmount) * 100, 100) : 0
       return {
         ...budget,
-        spent,
-        remaining,
-        percentage: Math.round(percentage * 100) / 100,
-        isExceeded: spent > limit,
+        limitAmount,
+        spentAmount,
+        remainingAmount,
+        usagePercent: Math.round(usagePercent * 100) / 100,
+        isOverBudget: spentAmount > limitAmount,
       }
     }),
   )
@@ -58,22 +59,23 @@ export async function getBudget(familyId: string, budgetId: string) {
   })
   if (!budget) throw Object.assign(new Error('Orçamento não encontrado'), { statusCode: 404 })
 
-  const spent = await getSpentAmount(
+  const spentAmount = await getSpentAmount(
     familyId,
     budget.categoryId,
     budget.referenceMonth,
     budget.referenceYear,
   )
-  const limit = budget.limitAmount.toNumber()
-  const remaining = Math.max(limit - spent, 0)
-  const percentage = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0
+  const limitAmount = budget.limitAmount.toNumber()
+  const remainingAmount = Math.max(limitAmount - spentAmount, 0)
+  const usagePercent = limitAmount > 0 ? Math.min((spentAmount / limitAmount) * 100, 100) : 0
 
   return {
     ...budget,
-    spent,
-    remaining,
-    percentage: Math.round(percentage * 100) / 100,
-    isExceeded: spent > limit,
+    limitAmount,
+    spentAmount,
+    remainingAmount,
+    usagePercent: Math.round(usagePercent * 100) / 100,
+    isOverBudget: spentAmount > limitAmount,
   }
 }
 

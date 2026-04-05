@@ -28,6 +28,7 @@
     "@fastify/swagger": "^9.1.0",
     "@prisma/client": "^6.2.1",
     "@scalar/fastify-api-reference": "^1.51.0",
+    "@sentry/node": "^10.47.0",
     "bcrypt": "^5.1.1",
     "bullmq": "^5.34.8",
     "fastify": "^5.2.1",

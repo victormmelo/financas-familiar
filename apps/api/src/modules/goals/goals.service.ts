@@ -26,7 +26,12 @@ export async function listGoals(familyId: string) {
         ? await calculateBalance(goal.accountId)
         : undefined
       const progress = computeProgress({ ...goal, accountBalance })
-      return { ...goal, progress }
+      return {
+        ...goal,
+        currentAmount: progress.current,
+        targetAmount: progress.target,
+        progressPercent: progress.percentage,
+      }
     }),
   )
 }
@@ -40,7 +45,12 @@ export async function getGoal(familyId: string, goalId: string) {
 
   const accountBalance = goal.accountId ? await calculateBalance(goal.accountId) : undefined
   const progress = computeProgress({ ...goal, accountBalance })
-  return { ...goal, progress }
+  return {
+    ...goal,
+    currentAmount: progress.current,
+    targetAmount: progress.target,
+    progressPercent: progress.percentage,
+  }
 }
 
 export async function createGoal(familyId: string, input: CreateGoalInput) {
