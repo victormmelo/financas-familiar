@@ -362,6 +362,94 @@ export interface CreateReportInput {
   }
 }
 
+// ─── Reconciliation ───────────────────────────────────────────────────────────
+
+export type StatementSource = 'OFX' | 'CSV' | 'MANUAL'
+export type StatementItemStatus = 'PENDING' | 'MATCHED' | 'REJECTED' | 'IGNORED' | 'CONVERTED'
+
+export interface ReconciliationSession {
+  id: string
+  familyId: string
+  accountId: string
+  source: StatementSource
+  fileName: string | null
+  startDate: string | null
+  endDate: string | null
+  createdById: string
+  createdAt: string
+  updatedAt: string
+  account?: { id: string; name: string; color: string | null }
+  itemCount?: number
+  pendingCount?: number
+}
+
+export interface StatementItem {
+  id: string
+  familyId: string
+  accountId: string
+  sessionId: string | null
+  type: TransactionType
+  amount: number
+  description: string
+  date: string
+  externalId: string | null
+  status: StatementItemStatus
+  matchedTransactionId: string | null
+  matchScore: number | null
+  ignoredAt: string | null
+  convertedAt: string | null
+  createdAt: string
+  updatedAt: string
+  matchedTransaction?: Pick<Transaction, 'id' | 'description' | 'amount' | 'date' | 'status'> | null
+  reconciliationResult?: ReconciliationItemStatus
+}
+
+export interface CreateStatementItemInput {
+  accountId: string
+  sessionId?: string
+  type: TransactionType
+  amount: number
+  description: string
+  date: string
+}
+
+export interface RunMatchingInput {
+  accountId: string
+  startDate: string
+  endDate: string
+}
+
+export interface AcceptMatchInput {
+  transactionId: string
+}
+
+export interface ConvertItemInput {
+  categoryId?: string
+  description?: string
+  notes?: string
+}
+
+export interface BalanceReconciliation {
+  accountId: string
+  accountName: string
+  reportedBalance: number
+  calculatedBalance: number
+  difference: number
+  isBalanced: boolean
+  pendingItemsCount: number
+  pendingItemsAmount: number
+}
+
+export interface StatementItemFilters {
+  accountId?: string
+  sessionId?: string
+  status?: StatementItemStatus
+  startDate?: string
+  endDate?: string
+  page?: number
+  limit?: number
+}
+
 // ─── API Error ────────────────────────────────────────────────────────────────
 
 export interface ApiErrorResponse {

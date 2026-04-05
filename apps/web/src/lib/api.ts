@@ -79,3 +79,43 @@ export const api = {
     apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 }
+
+// Multipart upload — does NOT set Content-Type (browser sets it with boundary)
+export async function apiFetchMultipart<T = unknown>(
+  path: string,
+  formData: FormData,
+  retry = true,
+): Promise<T> {
+  const headers: Record<string, string> = {}
+
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`
+  }
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    body: formData,
+    headers,
+    credentials: 'include',
+  })
+
+  if (res.status === 401 && retry) {
+    const newToken = await refreshToken()
+    if (newToken) {
+      return apiFetchMultipart<T>(path, formData, false)
+    }
+    accessToken = null
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth/login'
+    }
+    throw new Error('Não autenticado')
+  }
+
+  const data = await res.json()
+
+  if (!res.ok) {
+    throw new Error(data.message ?? 'Erro no upload')
+  }
+
+  return data as T
+}
