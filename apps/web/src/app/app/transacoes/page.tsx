@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Check, CheckCheck, Trash2, Pencil, Filter } from 'lucide-react'
+import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { TransactionForm } from '@/components/forms/transaction-form'
 import {
   useTransactions,
@@ -85,7 +86,7 @@ export default function TransacoesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-6 p-6">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
@@ -147,14 +148,39 @@ export default function TransacoesPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <p className="text-center py-10 text-gray-500">Carregando...</p>
+            <div className="divide-y divide-border">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-4">
+                  <Skeleton className="h-5 w-5 rounded" />
+                  <Skeleton className="h-4 w-20" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              ))}
+            </div>
           ) : transactions.length === 0 ? (
-            <p className="text-center py-10 text-gray-500">Nenhuma transação encontrada</p>
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <Receipt className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-medium">Nenhuma transação encontrada</p>
+                <p className="text-sm text-muted-foreground">Tente ajustar os filtros ou adicione um novo lançamento</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4" /> Nova transação
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-gray-50">
+                  <tr className="border-b border-border bg-muted/50">
                     <th className="w-10 px-4 py-3">
                       <input
                         type="checkbox"
@@ -168,18 +194,18 @@ export default function TransacoesPage() {
                         }}
                       />
                     </th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Data</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Descrição</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Conta</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Categoria</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Status</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">Valor</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">Ações</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Data</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Descrição</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Conta</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Categoria</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Valor</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-border">
                   {transactions.map((t) => (
-                    <tr key={t.id} className="hover:bg-gray-50">
+                    <tr key={t.id} className="hover:bg-muted/30 transition-colors">
                       <td className="px-4 py-3">
                         {t.status === 'DRAFT' && (
                           <input
@@ -189,24 +215,24 @@ export default function TransacoesPage() {
                           />
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatDate(t.date)}</td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
                       <td className="px-4 py-3">
-                        <p className="font-medium text-gray-900">{t.description}</p>
-                        {t.notes && <p className="text-xs text-gray-400">{t.notes}</p>}
+                        <p className="font-medium text-foreground">{t.description}</p>
+                        {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{t.account?.name ?? '—'}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{t.account?.name ?? '—'}</td>
                       <td className="px-4 py-3">
                         {t.category ? (
                           <Badge variant="secondary">{t.category.name}</Badge>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-muted-foreground">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={t.status} />
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold whitespace-nowrap">
-                        <span className={t.type === 'INCOME' ? 'text-green-600' : 'text-red-500'}>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <span className={`font-mono font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                           {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
                         </span>
                       </td>
@@ -214,7 +240,7 @@ export default function TransacoesPage() {
                         <div className="flex items-center justify-end gap-1">
                           {t.status === 'DRAFT' && (
                             <button
-                              className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-green-600"
+                              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-emerald-600"
                               title="Confirmar"
                               onClick={() => handleConfirm(t.id)}
                             >
@@ -222,14 +248,14 @@ export default function TransacoesPage() {
                             </button>
                           )}
                           <button
-                            className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"
+                            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
                             title="Editar"
                             onClick={() => { setEditingTx(t); setShowForm(true) }}
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
                           <button
-                            className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"
+                            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600"
                             title="Excluir"
                             onClick={() => setDeleteId(t.id)}
                           >
@@ -257,7 +283,7 @@ export default function TransacoesPage() {
           >
             Anterior
           </Button>
-          <span className="flex items-center text-sm text-gray-600">
+          <span className="flex items-center text-sm text-muted-foreground">
             Página {filters.page ?? 1} de {totalPages}
           </span>
           <Button
@@ -291,5 +317,6 @@ export default function TransacoesPage() {
 function StatusBadge({ status }: { status: string }) {
   if (status === 'CONFIRMED') return <Badge variant="success">Confirmado</Badge>
   if (status === 'DRAFT') return <Badge variant="warning">Rascunho</Badge>
+  if (status === 'DELETED') return <Badge variant="destructive">Excluído</Badge>
   return <Badge variant="secondary">{status}</Badge>
 }

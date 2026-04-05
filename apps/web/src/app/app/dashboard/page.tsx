@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts'
-import { TrendingUp, TrendingDown, Wallet, CreditCard, Target, PieChart as PieIcon } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, CreditCard, Target, PieChart as PieIcon, Receipt } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
@@ -26,7 +26,7 @@ import { useBudgets } from '@/hooks/use-budgets'
 import { useGoals } from '@/hooks/use-goals'
 import { formatCurrency, currentMonth, getMonthName } from '@/lib/utils'
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
 
 export default function DashboardPage() {
   const { month, year } = currentMonth()
@@ -56,7 +56,6 @@ export default function DashboardPage() {
     [transactions],
   )
 
-  // Category breakdown for pie chart
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {}
     transactions
@@ -71,42 +70,41 @@ export default function DashboardPage() {
       .slice(0, 6)
   }, [transactions])
 
-  // Budget overview
   const budgetItems = budgets?.slice(0, 5) ?? []
-
-  // Goals overview
   const topGoals = goals?.slice(0, 3) ?? []
+  const monthBalance = monthIncome - monthExpense
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-8 p-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           title="Saldo Total"
           value={formatCurrency(totalBalance)}
-          icon={<Wallet className="h-5 w-5 text-blue-600" />}
-          bg="bg-blue-50"
+          icon={<Wallet className="h-5 w-5 text-primary" />}
+          bg="bg-primary/10"
+          valueClass={totalBalance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}
         />
         <SummaryCard
           title={`Receitas — ${getMonthName(month)}`}
           value={formatCurrency(monthIncome)}
-          icon={<TrendingUp className="h-5 w-5 text-green-600" />}
-          bg="bg-green-50"
-          valueClass="text-green-700"
+          icon={<TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />}
+          bg="bg-emerald-50 dark:bg-emerald-900/20"
+          valueClass="text-emerald-600 dark:text-emerald-400"
         />
         <SummaryCard
           title={`Despesas — ${getMonthName(month)}`}
           value={formatCurrency(monthExpense)}
-          icon={<TrendingDown className="h-5 w-5 text-red-500" />}
-          bg="bg-red-50"
-          valueClass="text-red-600"
+          icon={<TrendingDown className="h-5 w-5 text-rose-600 dark:text-rose-400" />}
+          bg="bg-rose-50 dark:bg-rose-900/20"
+          valueClass="text-rose-600 dark:text-rose-400"
         />
         <SummaryCard
-          title={`Saldo do Mês`}
-          value={formatCurrency(monthIncome - monthExpense)}
-          icon={<CreditCard className="h-5 w-5 text-purple-600" />}
-          bg="bg-purple-50"
-          valueClass={monthIncome - monthExpense >= 0 ? 'text-green-700' : 'text-red-600'}
+          title="Saldo do Mês"
+          value={formatCurrency(monthBalance)}
+          icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+          bg="bg-muted"
+          valueClass={monthBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}
         />
       </div>
 
@@ -122,27 +120,35 @@ export default function DashboardPage() {
             {accounts && accounts.length > 0 ? (
               <div className="space-y-3">
                 {accounts.filter((a) => a.isActive).map((account) => (
-                  <div key={account.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div key={account.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex items-center gap-3">
                       <div
                         className="h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                        style={{ backgroundColor: account.color ?? '#3b82f6' }}
+                        style={{ backgroundColor: account.color ?? '#6366f1' }}
                       >
                         {account.name.charAt(0)}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{account.name}</p>
-                        <p className="text-xs text-gray-500">{account.type}</p>
+                        <p className="text-sm font-medium text-foreground">{account.name}</p>
+                        <p className="text-xs text-muted-foreground">{account.type}</p>
                       </div>
                     </div>
-                    <span className={`text-sm font-semibold ${account.balance >= 0 ? 'text-gray-900' : 'text-red-600'}`}>
+                    <span className={`font-mono text-sm font-semibold tabular-nums ${account.balance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
                       {formatCurrency(account.balance)}
                     </span>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">Nenhuma conta cadastrada</p>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <Wallet className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="font-medium">Nenhuma conta cadastrada</p>
+                  <p className="text-sm text-muted-foreground">Adicione sua primeira conta</p>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -167,7 +173,12 @@ export default function DashboardPage() {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-8">Sem despesas no mês</p>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <PieIcon className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">Sem despesas no mês</p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -183,8 +194,8 @@ export default function DashboardPage() {
                 {budgetItems.map((b) => (
                   <div key={b.id}>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="font-medium text-gray-700">{b.category?.name ?? '—'}</span>
-                      <span className={b.isOverBudget ? 'text-red-600 font-semibold' : 'text-gray-600'}>
+                      <span className="font-medium text-foreground">{b.category?.name ?? '—'}</span>
+                      <span className={b.isOverBudget ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-muted-foreground'}>
                         {formatCurrency(b.spentAmount)} / {formatCurrency(b.limitAmount)}
                       </span>
                     </div>
@@ -202,7 +213,12 @@ export default function DashboardPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">Nenhum orçamento para o mês</p>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <PieIcon className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">Nenhum orçamento para o mês</p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -220,18 +236,25 @@ export default function DashboardPage() {
                 {topGoals.map((g) => (
                   <div key={g.id}>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="font-medium text-gray-700">{g.name}</span>
-                      <span className="text-gray-600">{g.progressPercent.toFixed(0)}%</span>
+                      <span className="font-medium text-foreground">{g.name}</span>
+                      <span className="text-muted-foreground">{g.progressPercent.toFixed(0)}%</span>
                     </div>
                     <ProgressBar value={g.progressPercent} barClassName="bg-primary" />
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formatCurrency(g.currentAmount)} de {formatCurrency(g.targetAmount)}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <span className="font-mono tabular-nums">{formatCurrency(g.currentAmount)}</span>
+                      {' '}de{' '}
+                      <span className="font-mono tabular-nums">{formatCurrency(g.targetAmount)}</span>
                     </p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 text-center py-4">Nenhuma meta cadastrada</p>
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <Target className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm text-muted-foreground">Nenhuma meta cadastrada</p>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -244,26 +267,34 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           {transactions.length > 0 ? (
-            <div className="divide-y">
+            <div className="divide-y divide-border">
               {transactions.slice(0, 8).map((t) => (
                 <div key={t.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${t.type === 'INCOME' ? 'bg-green-500' : 'bg-red-400'}`}>
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${t.type === 'INCOME' ? 'bg-emerald-500' : 'bg-rose-400'}`}>
                       {t.type === 'INCOME' ? '+' : '-'}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{t.description}</p>
-                      <p className="text-xs text-gray-500">{t.account?.name} · {t.date}</p>
+                      <p className="text-sm font-medium text-foreground">{t.description}</p>
+                      <p className="text-xs text-muted-foreground">{t.account?.name} · {t.date}</p>
                     </div>
                   </div>
-                  <span className={`text-sm font-semibold ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-500'}`}>
+                  <span className={`font-mono text-sm font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                     {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 text-center py-6">Nenhuma transação no mês</p>
+            <div className="flex flex-col items-center gap-3 py-12 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <Receipt className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-medium">Nenhuma transação no mês</p>
+                <p className="text-sm text-muted-foreground">As transações confirmadas aparecerão aqui</p>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -276,7 +307,7 @@ function SummaryCard({
   value,
   icon,
   bg,
-  valueClass = 'text-gray-900',
+  valueClass = 'text-foreground',
 }: {
   title: string
   value: string
@@ -288,10 +319,10 @@ function SummaryCard({
     <Card>
       <CardContent className="pt-6">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-gray-500">{title}</p>
+          <p className="text-sm text-muted-foreground">{title}</p>
           <div className={`h-9 w-9 rounded-lg ${bg} flex items-center justify-center`}>{icon}</div>
         </div>
-        <p className={`text-2xl font-bold ${valueClass}`}>{value}</p>
+        <p className={`font-mono text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
       </CardContent>
     </Card>
   )

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, CreditCard } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CreditCardForm } from '@/components/forms/credit-card-form'
 import {
   useCreditCards,
@@ -46,7 +47,7 @@ export default function CartoesPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-6 p-6">
       <div className="flex justify-end">
         <Button onClick={() => setShowForm(true)}>
           <Plus className="h-4 w-4" /> Novo Cartão
@@ -54,19 +55,41 @@ export default function CartoesPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-center py-10 text-gray-500">Carregando...</p>
+        <div className="flex flex-col gap-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="h-12 w-20 rounded-lg" />
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-40" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-10 w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : cards?.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center">
-            <CreditCard className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-4">Nenhum cartão cadastrado</p>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <div className="rounded-full bg-muted p-4">
+              <CreditCard className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-medium">Nenhum cartão cadastrado</p>
+              <p className="text-sm text-muted-foreground">Adicione um cartão para controlar suas faturas</p>
+            </div>
             <Button onClick={() => setShowForm(true)}>
               <Plus className="h-4 w-4" /> Adicionar cartão
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           {cards?.map((card) => (
             <Card key={card.id}>
               <CardContent className="pt-6">
@@ -79,36 +102,36 @@ export default function CartoesPage() {
                       {card.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900">{card.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="font-semibold text-foreground">{card.name}</p>
+                      <p className="text-xs text-muted-foreground">
                         Fecha dia {card.closingDay} · Vence dia {card.dueDay}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-gray-500">Limite</p>
-                    <p className="font-semibold text-gray-900">{formatCurrency(card.limit)}</p>
+                    <p className="text-sm text-muted-foreground">Limite</p>
+                    <p className="font-mono font-semibold tabular-nums text-foreground">{formatCurrency(card.limit)}</p>
                     {card.currentSpending !== undefined && (
-                      <p className="text-xs text-gray-500">
-                        Usado: {formatCurrency(card.currentSpending)}
+                      <p className="text-xs text-muted-foreground">
+                        Usado: <span className="font-mono tabular-nums">{formatCurrency(card.currentSpending)}</span>
                       </p>
                     )}
                   </div>
                   <div className="flex items-center gap-1 ml-4">
                     <button
-                      className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600"
+                      className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
                       onClick={() => { setEditingCard(card); setShowForm(true) }}
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
                     <button
-                      className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500"
+                      className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600"
                       onClick={() => setDeleteId(card.id)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
                     <button
-                      className="p-1.5 rounded hover:bg-gray-100 text-gray-400"
+                      className="p-1.5 rounded hover:bg-accent text-muted-foreground"
                       onClick={() => setExpandedCard(expandedCard === card.id ? null : card.id)}
                     >
                       {expandedCard === card.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -119,14 +142,14 @@ export default function CartoesPage() {
                 {/* Limit bar */}
                 {card.currentSpending !== undefined && (
                   <div className="mt-4">
-                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-2 rounded-full bg-muted overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-indigo-500 transition-all"
+                        className="h-full rounded-full bg-sky-500 transition-all"
                         style={{ width: `${Math.min((card.currentSpending / card.limit) * 100, 100)}%` }}
                       />
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {formatCurrency(card.limit - (card.currentSpending ?? 0))} disponível
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <span className="font-mono tabular-nums">{formatCurrency(card.limit - (card.currentSpending ?? 0))}</span> disponível
                     </p>
                   </div>
                 )}
@@ -182,24 +205,30 @@ function InvoiceList({ cardId }: { cardId: string }) {
     }
   }
 
-  if (isLoading) return <p className="text-sm text-gray-400 mt-4 text-center">Carregando faturas...</p>
+  if (isLoading) return (
+    <div className="mt-4 border-t border-border pt-4 space-y-2">
+      {Array.from({ length: 2 }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded-lg" />
+      ))}
+    </div>
+  )
 
   const invoices = data?.data ?? []
 
   return (
-    <div className="mt-4 border-t pt-4">
-      <p className="text-sm font-medium text-gray-700 mb-3">Faturas</p>
+    <div className="mt-4 border-t border-border pt-4">
+      <p className="text-sm font-medium text-foreground mb-3">Faturas</p>
       {invoices.length === 0 ? (
-        <p className="text-sm text-gray-400">Nenhuma fatura encontrada</p>
+        <p className="text-sm text-muted-foreground">Nenhuma fatura encontrada</p>
       ) : (
         <div className="space-y-2">
           {invoices.map((inv) => (
-            <div key={inv.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-50">
+            <div key={inv.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
               <div>
-                <p className="text-sm font-medium text-gray-900">
+                <p className="text-sm font-medium text-foreground">
                   {getMonthName(inv.referenceMonth)} / {inv.referenceYear}
                 </p>
-                <p className="text-xs text-gray-500">{formatCurrency(inv.totalAmount)}</p>
+                <p className="text-xs font-mono tabular-nums text-muted-foreground">{formatCurrency(inv.totalAmount)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <InvoiceStatusBadge status={inv.status} />
@@ -217,8 +246,8 @@ function InvoiceList({ cardId }: { cardId: string }) {
       <Dialog open={!!payDialog} onClose={() => setPayDialog(null)} className="max-w-sm">
         <DialogHeader title="Pagar Fatura" onClose={() => setPayDialog(null)} />
         <DialogBody className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Total da fatura: <strong>{formatCurrency(payDialog?.totalAmount ?? 0)}</strong>
+          <p className="text-sm text-muted-foreground">
+            Total da fatura: <strong className="font-mono tabular-nums text-foreground">{formatCurrency(payDialog?.totalAmount ?? 0)}</strong>
           </p>
           <div className="space-y-1.5">
             <Label>Conta para débito</Label>

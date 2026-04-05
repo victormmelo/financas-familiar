@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight, PieChart } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { BudgetForm } from '@/components/forms/budget-form'
 import { useBudgets, useDeleteBudget, type Budget } from '@/hooks/use-budgets'
 import { useToast } from '@/components/ui/toast'
@@ -49,17 +50,17 @@ export default function OrcamentosPage() {
   const totalSpent = budgets?.reduce((s, b) => s + b.spentAmount, 0) ?? 0
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 p-6">
       {/* Month Navigator */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button className="p-2 rounded-lg hover:bg-gray-100" onClick={prevMonth}>
+          <button className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={prevMonth}>
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <h2 className="text-lg font-semibold text-gray-900 w-36 text-center">
+          <h2 className="text-lg font-medium text-foreground w-36 text-center">
             {getMonthName(month)} {year}
           </h2>
-          <button className="p-2 rounded-lg hover:bg-gray-100" onClick={nextMonth}>
+          <button className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" onClick={nextMonth}>
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
@@ -73,20 +74,24 @@ export default function OrcamentosPage() {
         <div className="grid grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-gray-500">Total Orçado</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(total)}</p>
+              <p className="text-xs text-muted-foreground">Total Orçado</p>
+              <p className="font-mono text-xl font-semibold tabular-nums text-foreground">{formatCurrency(total)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-gray-500">Total Gasto</p>
-              <p className={`text-xl font-bold ${totalSpent > total ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(totalSpent)}</p>
+              <p className="text-xs text-muted-foreground">Total Gasto</p>
+              <p className={`font-mono text-xl font-semibold tabular-nums ${totalSpent > total ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'}`}>
+                {formatCurrency(totalSpent)}
+              </p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-4 pb-4">
-              <p className="text-xs text-gray-500">Disponível</p>
-              <p className={`text-xl font-bold ${total - totalSpent < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(total - totalSpent)}</p>
+              <p className="text-xs text-muted-foreground">Disponível</p>
+              <p className={`font-mono text-xl font-semibold tabular-nums ${total - totalSpent < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {formatCurrency(total - totalSpent)}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -94,44 +99,64 @@ export default function OrcamentosPage() {
 
       {/* Budget list */}
       {isLoading ? (
-        <p className="text-center py-10 text-gray-500">Carregando...</p>
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-28" />
+                </div>
+                <Skeleton className="h-2.5 w-full rounded-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : budgets?.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-gray-500 mb-4">Nenhum orçamento para {getMonthName(month)} {year}</p>
-            <Button onClick={() => setShowForm(true)}><Plus className="h-4 w-4" /> Criar orçamento</Button>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <div className="rounded-full bg-muted p-4">
+              <PieChart className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-medium">Nenhum orçamento para {getMonthName(month)} {year}</p>
+              <p className="text-sm text-muted-foreground">Defina limites por categoria para controlar seus gastos</p>
+            </div>
+            <Button onClick={() => setShowForm(true)}>
+              <Plus className="h-4 w-4" /> Criar orçamento
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {budgets?.map((b) => (
             <Card key={b.id}>
               <CardContent className="py-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900">{b.category?.name ?? '—'}</span>
+                    <span className="font-medium text-foreground">{b.category?.name ?? '—'}</span>
                     {b.isOverBudget && <Badge variant="destructive">Excedido</Badge>}
                     {!b.isOverBudget && b.usagePercent >= 80 && <Badge variant="warning">Atenção</Badge>}
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-muted-foreground font-mono tabular-nums">
                       {formatCurrency(b.spentAmount)} / {formatCurrency(b.limitAmount)}
                     </span>
-                    <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600" onClick={() => { setEditingBudget(b); setShowForm(true) }}>
+                    <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground" onClick={() => { setEditingBudget(b); setShowForm(true) }}>
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-red-500" onClick={() => setDeleteId(b.id)}>
+                    <button className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600" onClick={() => setDeleteId(b.id)}>
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-                <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                <div className="h-2.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${b.isOverBudget ? 'bg-red-500' : b.usagePercent >= 80 ? 'bg-yellow-400' : 'bg-blue-500'}`}
+                    className={`h-full rounded-full transition-all ${b.isOverBudget ? 'bg-rose-500' : b.usagePercent >= 80 ? 'bg-amber-400' : 'bg-primary'}`}
                     style={{ width: `${Math.min(b.usagePercent, 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-gray-400 mt-1">{b.usagePercent.toFixed(0)}% utilizado</p>
+                <p className="text-xs text-muted-foreground mt-1">{b.usagePercent.toFixed(0)}% utilizado</p>
               </CardContent>
             </Card>
           ))}
