@@ -3,7 +3,7 @@
 export type Role = 'ADMIN' | 'MEMBER'
 export type AccountType = 'CHECKING' | 'SAVINGS' | 'JOINT' | 'INVESTMENT' | 'CASH'
 export type TransactionType = 'INCOME' | 'EXPENSE'
-export type TransactionStatus = 'DRAFT' | 'CONFIRMED' | 'DELETED'
+export type TransactionStatus = 'DRAFT' | 'PENDING' | 'CONFIRMED' | 'DELETED'
 export type DraftSource =
   | 'MANUAL'
   | 'AI_TEXT'
@@ -130,6 +130,7 @@ export interface Category {
   parentId: string | null
   name: string
   type: CategoryType
+  isFixed: boolean
   icon: string | null
   color: string | null
   createdAt: string
@@ -140,6 +141,7 @@ export interface Category {
 export interface CreateCategoryInput {
   name: string
   type: CategoryType
+  isFixed?: boolean
   parentId?: string
   icon?: string
   color?: string
@@ -164,11 +166,13 @@ export interface Transaction {
   creditCardId: string | null
   isRecurring: boolean
   rrule: string | null
+  dueDate: string | null
+  settledAt: string | null
   confirmedAt: string | null
   createdAt: string
   updatedAt: string
   account?: { id: string; name: string; color: string | null }
-  category?: { id: string; name: string; type: CategoryType } | null
+  category?: { id: string; name: string; type: CategoryType; isFixed: boolean } | null
   createdBy?: { id: string; name: string }
 }
 
@@ -176,10 +180,12 @@ export interface CreateTransactionInput {
   accountId: string
   categoryId?: string
   type: TransactionType
+  status?: TransactionStatus
   amount: number
   description: string
   notes?: string
   date: string
+  dueDate?: string
   source?: DraftSource
   creditCardId?: string
   isRecurring?: boolean
@@ -193,6 +199,9 @@ export interface UpdateTransactionInput {
   description?: string
   notes?: string
   date?: string
+  dueDate?: string
+  settledAt?: string
+  status?: TransactionStatus
 }
 
 export interface TransactionFilters {
@@ -337,6 +346,43 @@ export interface UpdateBudgetInput {
 export interface BudgetFilters {
   referenceMonth?: number
   referenceYear?: number
+}
+
+export type BudgetSemaphoreStatus = 'GREEN' | 'YELLOW' | 'RED'
+
+export interface BudgetCategoryBreakdown {
+  categoryId: string
+  categoryName: string
+  isFixed: boolean
+  budgetLimit: number
+  spentAmount: number
+  usagePercent: number
+  isOverBudget: boolean
+}
+
+export interface BudgetMonthlySummary {
+  referenceMonth: number
+  referenceYear: number
+  // Fixed expenses — committed from day 1
+  fixedBudget: number
+  fixedSpent: number
+  // Discretionary (variable) budget — controlled by daily rate
+  discretionaryBudget: number
+  discretionarySpent: number   // spent/due up to today
+  discretionaryCommitted: number // pending bills due later this month
+  // Daily rate tracking
+  daysInMonth: number
+  daysElapsed: number
+  dailyRate: number
+  expectedToDate: number
+  variance: number           // positive = under budget (good), negative = over
+  // Month-end projection based on current pace
+  projectedMonthEnd: number
+  projectedOverrun: number   // positive = over budget, negative = under
+  // Semaphore
+  status: BudgetSemaphoreStatus
+  // Category breakdown
+  byCategory: BudgetCategoryBreakdown[]
 }
 
 // ─── Report ───────────────────────────────────────────────────────────────────

@@ -26,6 +26,7 @@ export async function createCategory(familyId: string, input: CreateCategoryInpu
       familyId,
       name: input.name,
       type: input.type,
+      isFixed: input.isFixed ?? false,
       parentId: input.parentId,
       icon: input.icon,
       color: input.color,
@@ -42,6 +43,7 @@ export async function updateCategory(familyId: string, categoryId: string, input
     data: {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.type !== undefined && { type: input.type }),
+      ...(input.isFixed !== undefined && { isFixed: input.isFixed }),
       ...(input.icon !== undefined && { icon: input.icon }),
       ...(input.color !== undefined && { color: input.color }),
     },

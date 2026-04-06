@@ -29,6 +29,7 @@ enum TransactionType {
 
 enum TransactionStatus {
   DRAFT
+  PENDING
   CONFIRMED
   DELETED
 }
@@ -173,6 +174,7 @@ model Category {
   parentId  String?      @map("parent_id")
   name      String
   type      CategoryType
+  isFixed   Boolean      @default(false) @map("is_fixed")
   icon      String?
   color     String?
   createdAt DateTime     @default(now()) @map("created_at")
@@ -204,6 +206,8 @@ model Transaction {
   creditCardId String?           @map("credit_card_id")
   isRecurring  Boolean           @default(false) @map("is_recurring")
   rrule        String?
+  dueDate      DateTime?         @map("due_date") @db.Date
+  settledAt    DateTime?         @map("settled_at")
   confirmedAt  DateTime?         @map("confirmed_at")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
