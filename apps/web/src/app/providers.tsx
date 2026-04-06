@@ -13,7 +13,7 @@ function AuthHydration() {
   useEffect(() => {
     // On mount, try to refresh if we have a stored user but no access token
     if (user) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/auth/refresh`, {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
       })
