@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js'
+import type { Prisma } from '@prisma/client'
 import type { CreateTransferInput } from './transfers.schema.js'
 
 export async function listTransfers(familyId: string) {
@@ -24,7 +25,7 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
   const description = input.description ?? `Transferência: ${fromAccount.name} → ${toAccount.name}`
   const date = new Date(input.date)
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const transfer = await tx.transfer.create({
       data: {
         familyId,
@@ -82,7 +83,7 @@ export async function deleteTransfer(familyId: string, transferId: string) {
   const transfer = await prisma.transfer.findFirst({ where: { id: transferId, familyId } })
   if (!transfer) throw Object.assign(new Error('Transferência não encontrada'), { statusCode: 404 })
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.transaction.updateMany({
       where: { transferId },
       data: { status: 'DELETED' },

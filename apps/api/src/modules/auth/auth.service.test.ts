@@ -44,7 +44,7 @@ const mockApp = {
     sign: vi.fn().mockReturnValue('mock-token'),
     verify: vi.fn(),
   },
-} as never
+}
 
 const mockUser = {
   id: 'user-1',
@@ -63,7 +63,7 @@ beforeEach(() => {
 describe('register', () => {
   it('deve criar família e usuário com role ADMIN', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn) => {
+    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const txMock = {
         family: { create: vi.fn().mockResolvedValue({ id: 'family-1', name: 'Família Silva' }) },
         user: {
@@ -73,7 +73,7 @@ describe('register', () => {
       return fn(txMock as never)
     })
 
-    const result = await register(mockApp, {
+    const result = await register(mockApp as never, {
       name: 'João Silva',
       email: 'joao@exemplo.com',
       password: 'senha123',
@@ -90,7 +90,7 @@ describe('register', () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser as never)
 
     await expect(
-      register(mockApp, {
+      register(mockApp as never, {
         name: 'João',
         email: 'joao@exemplo.com',
         password: 'senha123',
@@ -105,7 +105,7 @@ describe('login', () => {
     const hash = await bcrypt.hash('senha123', 10)
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...mockUser, passwordHash: hash } as never)
 
-    const result = await login(mockApp, { email: 'joao@exemplo.com', password: 'senha123' })
+    const result = await login(mockApp as never, { email: 'joao@exemplo.com', password: 'senha123' })
 
     expect(result.user.email).toBe('joao@exemplo.com')
     expect(result.tokens.accessToken).toBe('mock-token')
@@ -116,7 +116,7 @@ describe('login', () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...mockUser, passwordHash: hash } as never)
 
     await expect(
-      login(mockApp, { email: 'joao@exemplo.com', password: 'senha-errada' }),
+      login(mockApp as never, { email: 'joao@exemplo.com', password: 'senha-errada' }),
     ).rejects.toMatchObject({ statusCode: 401 })
   })
 
@@ -124,7 +124,7 @@ describe('login', () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
 
     await expect(
-      login(mockApp, { email: 'nao@existe.com', password: 'qualquer' }),
+      login(mockApp as never, { email: 'nao@existe.com', password: 'qualquer' }),
     ).rejects.toMatchObject({ statusCode: 401 })
   })
 })
@@ -137,7 +137,7 @@ describe('refresh', () => {
     vi.mocked(redis.del).mockResolvedValue(1)
     vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser as never)
 
-    const tokens = await refresh(mockApp, 'valid-refresh-token')
+    const tokens = await refresh(mockApp as never, 'valid-refresh-token')
 
     expect(tokens.accessToken).toBe('mock-token')
     expect(redis.del).toHaveBeenCalledOnce()
@@ -149,7 +149,7 @@ describe('refresh', () => {
     vi.mocked(mockApp.jwt.verify).mockReturnValue(payload)
     vi.mocked(redis.get).mockResolvedValue(null) // token não existe no Redis
 
-    await expect(refresh(mockApp, 'used-refresh-token')).rejects.toMatchObject({ statusCode: 401 })
+    await expect(refresh(mockApp as never, 'used-refresh-token')).rejects.toMatchObject({ statusCode: 401 })
   })
 })
 

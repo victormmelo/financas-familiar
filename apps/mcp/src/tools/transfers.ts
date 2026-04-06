@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 
@@ -52,7 +53,7 @@ export function registerTransferHandlers(
     const description = input.description ?? `Transferência: ${fromAccount.name} → ${toAccount.name}`
     const date = new Date(input.date)
 
-    const transfer = await prisma.$transaction(async (tx) => {
+    const transfer = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newTransfer = await tx.transfer.create({
         data: { familyId, fromAccountId: input.fromAccountId, toAccountId: input.toAccountId, amount: input.amount, description, date },
       })

@@ -43,7 +43,7 @@ export function registerBudgetHandlers(
     const endOfMonth = new Date(input.year, input.month, 0)
 
     const statusList = await Promise.all(
-      budgets.map(async (budget) => {
+      budgets.map(async (budget: (typeof budgets)[number]) => {
         const spent = await prisma.transaction.aggregate({
           where: {
             familyId,

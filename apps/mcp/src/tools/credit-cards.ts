@@ -56,7 +56,7 @@ export function registerCreditCardHandlers(
     })
 
     return {
-      creditCards: cards.map((card) => ({
+      creditCards: cards.map((card: (typeof cards)[number]) => ({
         id: card.id,
         name: card.name,
         limit: Number(card.limit),
@@ -114,7 +114,7 @@ export function registerCreditCardHandlers(
       orderBy: { date: 'desc' },
     })
 
-    const total = transactions.reduce((sum, t) => sum + Number(t.amount), 0)
+    const total = transactions.reduce((sum: number, t: (typeof transactions)[number]) => sum + Number(t.amount), 0)
 
     return {
       card: {
@@ -128,7 +128,7 @@ export function registerCreditCardHandlers(
         ? { ...invoice, totalAmount: Number(invoice.totalAmount) }
         : { status: 'OPEN', totalAmount: total },
       period: { from: startDate.toISOString().slice(0, 10), to: endDate.toISOString().slice(0, 10) },
-      transactions: transactions.map((t) => ({ ...t, amount: Number(t.amount) })),
+      transactions: transactions.map((t: (typeof transactions)[number]) => ({ ...t, amount: Number(t.amount) })),
       totalSpent: total,
       availableLimit: Number(card.limit) - total,
     }

@@ -95,7 +95,7 @@ export function registerReportHandlers(
 
     // Saldos das contas (sem filtro de período — saldo atual real)
     const accountBalances = await Promise.all(
-      accounts.map(async (account) => {
+      accounts.map(async (account: (typeof accounts)[number]) => {
         const [inc, exp] = await Promise.all([
           prisma.transaction.aggregate({
             where: { accountId: account.id, type: 'INCOME', status: 'CONFIRMED' },
@@ -120,7 +120,7 @@ export function registerReportHandlers(
       totalExpense,
       netBalance: totalIncome - totalExpense,
       accounts: accountBalances,
-      totalCurrentBalance: accountBalances.reduce((sum, a) => sum + a.balance, 0),
+      totalCurrentBalance: accountBalances.reduce((sum: number, a: (typeof accountBalances)[number]) => sum + a.balance, 0),
     }
   })
 
@@ -153,7 +153,7 @@ export function registerReportHandlers(
       }
     }
 
-    const totalExpense = transactions.reduce((sum, t) => sum + Number(t.amount), 0)
+    const totalExpense = transactions.reduce((sum: number, t: (typeof transactions)[number]) => sum + Number(t.amount), 0)
 
     const categories = Array.from(byCategory.entries())
       .map(([id, { name, total }]) => ({

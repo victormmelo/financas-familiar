@@ -104,6 +104,7 @@ describe('createTransaction', () => {
       description: 'Supermercado',
       date: '2026-04-01',
       source: 'MANUAL',
+      isRecurring: false,
     })
 
     expect(prisma.transaction.create).toHaveBeenCalledWith(
@@ -124,6 +125,7 @@ describe('createTransaction', () => {
         description: 'Teste',
         date: '2026-04-01',
         source: 'MANUAL',
+        isRecurring: false,
       }),
     ).rejects.toMatchObject({ statusCode: 404 })
   })
@@ -141,6 +143,7 @@ describe('createTransaction', () => {
         description: 'Teste',
         date: '2026-04-01',
         source: 'MANUAL',
+        isRecurring: false,
       }),
     ).rejects.toMatchObject({ statusCode: 404 })
   })

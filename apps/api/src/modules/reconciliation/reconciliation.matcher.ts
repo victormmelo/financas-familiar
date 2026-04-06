@@ -108,7 +108,9 @@ export async function runAutoMatch(
   const scoredPairs: ScoredPair[] = []
 
   for (const item of items) {
-    const candidates = transactions.filter((tx) => dateDiffDays(item.date, tx.date) <= 3)
+    const candidates = transactions.filter(
+      (tx: (typeof transactions)[number]) => dateDiffDays(item.date, tx.date) <= 3,
+    )
     for (const tx of candidates) {
       const s = scoreMatch(item, tx)
       if (s >= 70) {
@@ -134,8 +136,8 @@ export async function runAutoMatch(
 
   // Clear previous suggestions for items being re-matched
   const itemIdsToReset = items
-    .filter((i) => !usedItemIds.has(i.id))
-    .map((i) => i.id)
+    .filter((i: (typeof items)[number]) => !usedItemIds.has(i.id))
+    .map((i: (typeof items)[number]) => i.id)
 
   // Apply updates in a transaction
   await prisma.$transaction([

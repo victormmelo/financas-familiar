@@ -10,7 +10,7 @@ export async function listAccounts(familyId: string) {
 
   // Calculate current balance for each account
   const accountsWithBalance = await Promise.all(
-    accounts.map(async (account) => {
+    accounts.map(async (account: (typeof accounts)[number]) => {
       const balance = await calculateBalance(account.id)
       return { ...account, currentBalance: balance }
     }),

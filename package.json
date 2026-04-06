@@ -3,7 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "description": "App de finanças pessoais para famílias",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -30,5 +33,6 @@
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"
-  }
+  },
+  "packageManager": "npm@11.4.2"
 }
