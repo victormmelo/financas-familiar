@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 
 export interface ReportJobData {
   reportId: string
@@ -14,7 +14,7 @@ export interface ReportJobData {
 }
 
 export const reportsQueue = new Queue<ReportJobData>('reports', {
-  connection: redis,
+  connection: redisBullmq,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5000 },

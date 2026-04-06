@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 
 export interface InviteEmailJobData {
   to: string
@@ -10,7 +10,7 @@ export interface InviteEmailJobData {
 }
 
 export const emailQueue = new Queue<InviteEmailJobData>('email', {
-  connection: redis,
+  connection: redisBullmq,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 3000 },

@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq'
 import nodemailer from 'nodemailer'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 import type { InviteEmailJobData } from './email.queue.js'
 
 const transporter = nodemailer.createTransport({
@@ -55,7 +55,7 @@ export const emailWorker = new Worker<InviteEmailJobData>(
   async (job) => {
     await sendInviteEmail(job.data)
   },
-  { connection: redis, concurrency: 5 },
+  { connection: redisBullmq, concurrency: 5 },
 )
 
 emailWorker.on('completed', (job) => {

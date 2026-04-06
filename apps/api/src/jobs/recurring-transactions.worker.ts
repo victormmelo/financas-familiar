@@ -1,7 +1,7 @@
 import { Worker, Queue } from 'bullmq'
 import { RRule } from 'rrule'
 import { prisma } from '../lib/prisma.js'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 import type { RecurringTransactionsJobData } from './recurring-transactions.queue.js'
 
 /**
@@ -113,7 +113,7 @@ export const recurringTransactionsWorker = new Worker<RecurringTransactionsJobDa
     )
     return result
   },
-  { connection: redis, concurrency: 1 },
+  { connection: redisBullmq, concurrency: 1 },
 )
 
 recurringTransactionsWorker.on('completed', (job) => {
@@ -127,7 +127,7 @@ recurringTransactionsWorker.on('failed', (job, err) => {
 // ─── Scheduler diário ────────────────────────────────────────────────────────
 // Registra um job repetível que roda todo dia à meia-noite UTC
 const schedulerQueue = new Queue<RecurringTransactionsJobData>('recurring-transactions', {
-  connection: redis,
+  connection: redisBullmq,
 })
 
 schedulerQueue

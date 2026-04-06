@@ -15,6 +15,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web ./apps/web
 COPY packages/shared-types ./packages/shared-types
 COPY package.json ./
+# Garante `public/` para o COPY no runner (projeto pode não ter a pasta no repo)
+RUN mkdir -p apps/web/public
 ENV NEXT_TELEMETRY_DISABLED=1
 # NEXT_PUBLIC_* são baked em build time — passe via --build-arg no docker build
 ARG NEXT_PUBLIC_API_URL

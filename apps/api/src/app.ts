@@ -1,6 +1,19 @@
+import { createRequire } from 'node:module'
 import './env.js' // valida variáveis de ambiente antes de qualquer outra coisa
 import { env } from './env.js'
 import { initSentry, Sentry } from './lib/sentry.js'
+
+/** CJS (`NodeNext` sem `"type":"module"`): base de resolução para `pino-pretty` no monorepo. */
+const nodeRequire = createRequire(__filename)
+
+function isPinoPrettyInstalled(): boolean {
+  try {
+    nodeRequire.resolve('pino-pretty')
+    return true
+  } catch {
+    return false
+  }
+}
 
 // Sentry deve ser inicializado antes do Fastify para capturar erros de bootstrap
 initSentry()
@@ -30,25 +43,27 @@ import './jobs/email.worker.js'
 import './jobs/reports.worker.js'
 import './jobs/recurring-transactions.worker.js'
 
-const isDev = env.NODE_ENV !== 'production'
+/** Pretty só em dev local com devDependencies; Docker/prod sem pino-pretty usa JSON. */
+const usePrettyLogger = env.NODE_ENV === 'development' && isPinoPrettyInstalled()
+
+const productionLikeLogger = {
+  level: 'info' as const,
+  serializers: {
+    req(request: { method: string; url: string }) {
+      return { method: request.method, url: request.url }
+    },
+  },
+}
 
 const app = Fastify({
-  logger: isDev
+  logger: usePrettyLogger
     ? {
         transport: {
           target: 'pino-pretty',
           options: { translateTime: 'HH:MM:ss Z', ignore: 'pid,hostname' },
         },
       }
-    : {
-        // Em produção: JSON estruturado sem pino-pretty (para coleta por Datadog/CloudWatch/etc.)
-        level: 'info',
-        serializers: {
-          req(request) {
-            return { method: request.method, url: request.url }
-          },
-        },
-      },
+    : productionLikeLogger,
 })
 
 const PORT = env.PORT

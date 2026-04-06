@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 
 // Job disparado diariamente para gerar ocorrências de transações recorrentes
 export interface RecurringTransactionsJobData {
@@ -9,7 +9,7 @@ export interface RecurringTransactionsJobData {
 export const recurringTransactionsQueue = new Queue<RecurringTransactionsJobData>(
   'recurring-transactions',
   {
-    connection: redis,
+    connection: redisBullmq,
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
+
+/** Cliente passado ao callback de `prisma.$transaction` (transação interativa). */
+type PrismaTransactionClient = Omit<
+  PrismaClient,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'
+>
 
 // Mock dependencies before importing the module under test
 vi.mock('../../lib/prisma.js', () => ({
@@ -63,15 +70,17 @@ beforeEach(() => {
 describe('register', () => {
   it('deve criar família e usuário com role ADMIN', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
-    vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: unknown) => unknown) => {
-      const txMock = {
-        family: { create: vi.fn().mockResolvedValue({ id: 'family-1', name: 'Família Silva' }) },
-        user: {
-          create: vi.fn().mockResolvedValue({ ...mockUser, passwordHash: 'hashed' }),
-        },
-      }
-      return fn(txMock as never)
-    })
+    vi.mocked(prisma.$transaction).mockImplementation(
+      async (fn: (tx: PrismaTransactionClient) => Promise<unknown>) => {
+        const txMock = {
+          family: { create: vi.fn().mockResolvedValue({ id: 'family-1', name: 'Família Silva' }) },
+          user: {
+            create: vi.fn().mockResolvedValue({ ...mockUser, passwordHash: 'hashed' }),
+          },
+        }
+        return fn(txMock as PrismaTransactionClient)
+      },
+    )
 
     const result = await register(mockApp as never, {
       name: 'João Silva',

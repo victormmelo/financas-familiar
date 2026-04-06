@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
-import { redis } from '../lib/redis.js'
+import { redisBullmq } from '../lib/redis.js'
 import type { ReportJobData } from './reports.queue.js'
 
 async function generateDRE(familyId: string, params: ReportJobData['params']) {
@@ -128,7 +128,7 @@ export const reportsWorker = new Worker<ReportJobData>(
       },
     })
   },
-  { connection: redis, concurrency: 2 },
+  { connection: redisBullmq, concurrency: 2 },
 )
 
 reportsWorker.on('completed', (job) => {
