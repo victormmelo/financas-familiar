@@ -232,7 +232,7 @@ export function registerTransactionHandlers(
     ])
 
     return {
-      transactions: transactions.map((t) => ({
+      transactions: transactions.map((t: (typeof transactions)[number]) => ({
         ...t,
         amount: Number(t.amount),
       })),
@@ -386,7 +386,7 @@ export function registerTransactionHandlers(
     })
 
     return {
-      transactions: transactions.map((t) => ({ ...t, amount: Number(t.amount) })),
+      transactions: transactions.map((t: (typeof transactions)[number]) => ({ ...t, amount: Number(t.amount) })),
       count: transactions.length,
     }
   })
@@ -417,6 +417,6 @@ export function registerTransactionHandlers(
       ),
     )
 
-    return { created: created.length, ids: created.map((t) => t.id) }
+    return { created: created.length, ids: created.map((t: (typeof created)[number]) => t.id) }
   })
 }

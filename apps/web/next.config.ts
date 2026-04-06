@@ -12,6 +12,6 @@ export default withSentryConfig(nextConfig, {
   silent: !process.env.CI,
   // Upload de source maps apenas em produção (requer SENTRY_AUTH_TOKEN)
   widenClientFileUpload: true,
-  hideSourceMaps: true,
+  sourcemaps: { disable: true },
   disableLogger: true,
 })

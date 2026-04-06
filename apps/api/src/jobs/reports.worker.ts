@@ -36,11 +36,11 @@ async function generateDRE(familyId: string, params: ReportJobData['params']) {
   }
 
   const totalIncome = transactions
-    .filter((t) => t.type === 'INCOME')
-    .reduce((sum, t) => sum + t.amount.toNumber(), 0)
+    .filter((t: (typeof transactions)[number]) => t.type === 'INCOME')
+    .reduce((sum: number, t: (typeof transactions)[number]) => sum + t.amount.toNumber(), 0)
   const totalExpense = transactions
-    .filter((t) => t.type === 'EXPENSE')
-    .reduce((sum, t) => sum + t.amount.toNumber(), 0)
+    .filter((t: (typeof transactions)[number]) => t.type === 'EXPENSE')
+    .reduce((sum: number, t: (typeof transactions)[number]) => sum + t.amount.toNumber(), 0)
 
   return {
     period: { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) },
@@ -66,8 +66,10 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
         _sum: { amount: true },
       })
 
-      const income = result.find((r) => r.type === 'INCOME')?._sum.amount?.toNumber() ?? 0
-      const expense = result.find((r) => r.type === 'EXPENSE')?._sum.amount?.toNumber() ?? 0
+      const income =
+        result.find((r: (typeof result)[number]) => r.type === 'INCOME')?._sum.amount?.toNumber() ?? 0
+      const expense =
+        result.find((r: (typeof result)[number]) => r.type === 'EXPENSE')?._sum.amount?.toNumber() ?? 0
 
       return { month, year, income, expense, net: income - expense }
     }),
@@ -82,14 +84,16 @@ async function generatePatrimony(familyId: string) {
   })
 
   const rows = await Promise.all(
-    accounts.map(async (account) => {
+    accounts.map(async (account: (typeof accounts)[number]) => {
       const result = await prisma.transaction.groupBy({
         by: ['type'],
         where: { accountId: account.id, status: 'CONFIRMED', creditCardId: null },
         _sum: { amount: true },
       })
-      const income = result.find((r) => r.type === 'INCOME')?._sum.amount?.toNumber() ?? 0
-      const expense = result.find((r) => r.type === 'EXPENSE')?._sum.amount?.toNumber() ?? 0
+      const income =
+        result.find((r: (typeof result)[number]) => r.type === 'INCOME')?._sum.amount?.toNumber() ?? 0
+      const expense =
+        result.find((r: (typeof result)[number]) => r.type === 'EXPENSE')?._sum.amount?.toNumber() ?? 0
       const balance = account.initialBalance.toNumber() + income - expense
 
       return { id: account.id, name: account.name, type: account.type, balance }

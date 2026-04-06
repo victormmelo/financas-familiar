@@ -27,9 +27,9 @@ export async function registerSwagger(app: FastifyInstance) {
   await app.register(scalarApiReference, {
     routePrefix: '/docs',
     configuration: {
-      spec: { url: '/openapi.json' },
+      url: '/openapi.json',
       theme: 'purple',
-      defaultHttpClient: { targetKey: 'javascript', clientKey: 'fetch' },
+      defaultHttpClient: { targetKey: 'js', clientKey: 'fetch' },
     },
   })
 }

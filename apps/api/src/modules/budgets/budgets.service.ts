@@ -35,7 +35,7 @@ export async function listBudgets(familyId: string, query: ListBudgetsInput) {
   })
 
   return Promise.all(
-    budgets.map(async (budget) => {
+    budgets.map(async (budget: (typeof budgets)[number]) => {
       const spentAmount = await getSpentAmount(familyId, budget.categoryId, month, year)
       const limitAmount = budget.limitAmount.toNumber()
       const remainingAmount = Math.max(limitAmount - spentAmount, 0)

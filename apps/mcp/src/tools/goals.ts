@@ -35,7 +35,7 @@ export function registerGoalHandlers(
     })
 
     return {
-      goals: goals.map((g) => {
+      goals: goals.map((g: (typeof goals)[number]) => {
         const target = Number(g.targetAmount)
         const current = Number(g.currentAmount)
         const progressPercent = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0

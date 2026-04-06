@@ -64,7 +64,7 @@ export function registerAccountHandlers(
     })
 
     const withBalances = await Promise.all(
-      accounts.map(async (account) => {
+      accounts.map(async (account: (typeof accounts)[number]) => {
         const { confirmedIncome, confirmedExpense } = await calculateBalance(account.id)
         const initialBalance = Number(account.initialBalance)
         return {

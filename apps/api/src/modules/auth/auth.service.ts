@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt'
 import crypto from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { redis } from '../../lib/redis.js'
 import { emailQueue } from '../../jobs/email.queue.js'
@@ -55,7 +56,7 @@ export async function register(app: FastifyInstance, input: RegisterInput): Prom
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS)
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const family = await tx.family.create({ data: { name: input.familyName } })
     const user = await tx.user.create({
       data: {
@@ -206,7 +207,7 @@ export async function acceptInvite(
 
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS)
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.user.create({
       data: {
         familyId: invite.familyId,

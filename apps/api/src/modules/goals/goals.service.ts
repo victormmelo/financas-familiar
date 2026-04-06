@@ -21,7 +21,7 @@ export async function listGoals(familyId: string) {
   })
 
   return Promise.all(
-    goals.map(async (goal) => {
+    goals.map(async (goal: (typeof goals)[number]) => {
       const accountBalance = goal.accountId
         ? await calculateBalance(goal.accountId)
         : undefined

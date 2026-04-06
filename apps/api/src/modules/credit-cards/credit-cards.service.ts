@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js'
+import type { Prisma } from '@prisma/client'
 import type {
   CreateCreditCardInput,
   UpdateCreditCardInput,
@@ -32,7 +33,7 @@ export async function listCreditCards(familyId: string) {
   const year = now.getFullYear()
 
   return Promise.all(
-    cards.map(async (card) => {
+    cards.map(async (card: (typeof cards)[number]) => {
       const currentSpending = await getInvoiceSpending(card.id, month, year)
       return { ...card, currentSpending }
     }),
@@ -200,7 +201,7 @@ export async function payInvoice(
 
   const amountToPay = input.amount ?? invoice.totalAmount.toNumber()
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.transaction.create({
       data: {
         familyId,
