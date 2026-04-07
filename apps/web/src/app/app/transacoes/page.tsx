@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt, RotateCcw } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
@@ -102,141 +102,153 @@ export default function TransacoesPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Toolbar — painel operacional de critérios */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="rounded-sm border border-border border-l-2 border-l-[#7CFC98] bg-card/80 p-4">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Critérios de busca
-              </span>
-              {activeFilterCount > 0 && (
-                <Badge variant="secondary">{activeFilterCount} ativo{activeFilterCount > 1 ? 's' : ''}</Badge>
-              )}
+      {/* Painel operacional de critérios — grid estável */}
+      <div className="flex flex-col gap-2">
+        <div className="rounded-sm border border-border border-l-2 border-l-[#7CFC98] bg-card/80 p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Critérios de busca
+            </span>
+            {activeFilterCount > 0 && (
+              <Badge variant="secondary">{activeFilterCount} ativo{activeFilterCount > 1 ? 's' : ''}</Badge>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+            <div className="space-y-1 sm:col-span-1 lg:col-span-2">
+              <Label
+                htmlFor="tx-filter-type"
+                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Tipo
+              </Label>
+              <Select
+                id="tx-filter-type"
+                className="h-8 w-full text-sm"
+                value={filters.type ?? ''}
+                onChange={(e) => setFilter('type', e.target.value)}
+              >
+                <option value="">Todos os tipos</option>
+                <option value="INCOME">Receitas</option>
+                <option value="EXPENSE">Despesas</option>
+              </Select>
             </div>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label
-                  htmlFor="tx-filter-type"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  Tipo
-                </Label>
-                <Select
-                  id="tx-filter-type"
-                  className="h-8 w-full min-w-[10rem] text-sm sm:w-40"
-                  value={filters.type ?? ''}
-                  onChange={(e) => setFilter('type', e.target.value)}
-                >
-                  <option value="">Todos os tipos</option>
-                  <option value="INCOME">Receitas</option>
-                  <option value="EXPENSE">Despesas</option>
-                </Select>
+            <div className="space-y-1 sm:col-span-1 lg:col-span-2">
+              <Label
+                htmlFor="tx-filter-status"
+                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Status
+              </Label>
+              <Select
+                id="tx-filter-status"
+                className="h-8 w-full text-sm"
+                value={filters.status ?? ''}
+                onChange={(e) => setFilter('status', e.target.value)}
+              >
+                <option value="">Todos os status</option>
+                <option value="DRAFT">Rascunho</option>
+                <option value="CONFIRMED">Confirmado</option>
+              </Select>
+            </div>
+            <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+              <Label
+                htmlFor="tx-filter-account"
+                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Conta
+              </Label>
+              <Select
+                id="tx-filter-account"
+                className="h-8 w-full text-sm"
+                value={filters.accountId ?? ''}
+                onChange={(e) => setFilter('accountId', e.target.value)}
+              >
+                <option value="">Todas as contas</option>
+                {accounts?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div
+              className={`space-y-1 sm:col-span-2 ${activeFilterCount > 0 ? 'lg:col-span-4' : 'lg:col-span-5'}`}
+            >
+              <span className="block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Período
+              </span>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label
+                    htmlFor="tx-filter-start"
+                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    De
+                  </Label>
+                  <Input
+                    id="tx-filter-start"
+                    type="date"
+                    className="h-8 w-full rounded-sm font-mono text-sm tabular-nums"
+                    value={filters.startDate ?? ''}
+                    onChange={(e) => setFilter('startDate', e.target.value)}
+                  />
+                </div>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label
+                    htmlFor="tx-filter-end"
+                    className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    Até
+                  </Label>
+                  <Input
+                    id="tx-filter-end"
+                    type="date"
+                    className="h-8 w-full rounded-sm font-mono text-sm tabular-nums"
+                    value={filters.endDate ?? ''}
+                    onChange={(e) => setFilter('endDate', e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label
-                  htmlFor="tx-filter-status"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  Status
-                </Label>
-                <Select
-                  id="tx-filter-status"
-                  className="h-8 w-full min-w-[10rem] text-sm sm:w-40"
-                  value={filters.status ?? ''}
-                  onChange={(e) => setFilter('status', e.target.value)}
-                >
-                  <option value="">Todos os status</option>
-                  <option value="DRAFT">Rascunho</option>
-                  <option value="CONFIRMED">Confirmado</option>
-                </Select>
-              </div>
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label
-                  htmlFor="tx-filter-account"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  Conta
-                </Label>
-                <Select
-                  id="tx-filter-account"
-                  className="h-8 w-full min-w-[11rem] text-sm sm:w-44"
-                  value={filters.accountId ?? ''}
-                  onChange={(e) => setFilter('accountId', e.target.value)}
-                >
-                  <option value="">Todas as contas</option>
-                  {accounts?.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label
-                  htmlFor="tx-filter-start"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  De
-                </Label>
-                <Input
-                  id="tx-filter-start"
-                  type="date"
-                  className="h-8 w-full min-w-[10rem] rounded-sm font-mono text-sm tabular-nums sm:w-40"
-                  value={filters.startDate ?? ''}
-                  onChange={(e) => setFilter('startDate', e.target.value)}
-                />
-              </div>
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label
-                  htmlFor="tx-filter-end"
-                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  Até
-                </Label>
-                <Input
-                  id="tx-filter-end"
-                  type="date"
-                  className="h-8 w-full min-w-[10rem] rounded-sm font-mono text-sm tabular-nums sm:w-40"
-                  value={filters.endDate ?? ''}
-                  onChange={(e) => setFilter('endDate', e.target.value)}
-                />
-              </div>
-              {activeFilterCount > 0 && (
+            </div>
+            {activeFilterCount > 0 && (
+              <div className="flex sm:col-span-2 lg:col-span-1 lg:justify-self-end">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 shrink-0 rounded-sm uppercase tracking-wide"
+                  className="h-8 w-full shrink-0 rounded-sm uppercase tracking-wide sm:w-auto"
                   onClick={clearFilters}
                 >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                   Limpar filtros
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-          {hasPeriodRange && (
-            <p className="font-mono text-xs text-muted-foreground tabular-nums">
-              Período: {formatDate(filters.startDate!)} — {formatDate(filters.endDate!)}
-            </p>
-          )}
         </div>
-        <div className="flex shrink-0 items-end gap-2">
-          {selected.size > 0 && (
-            <Button variant="secondary" size="sm" onClick={handleBulkConfirm}>
-              <CheckCheck className="h-4 w-4" />
-              Confirmar {selected.size}
-            </Button>
-          )}
-          <Button className="rounded-sm" onClick={() => setShowForm(true)}>
-            <Plus className="h-4 w-4" /> Nova transação
-          </Button>
-        </div>
+        {hasPeriodRange && (
+          <p className="font-mono text-xs text-muted-foreground tabular-nums">
+            Período: {formatDate(filters.startDate!)} — {formatDate(filters.endDate!)}
+          </p>
+        )}
       </div>
 
-      {/* Table */}
+      {/* Tabela */}
       <Card>
+        <CardHeader className="flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <CardTitle className="text-base font-semibold tracking-tight">Transações</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            {selected.size > 0 && (
+              <Button variant="secondary" size="sm" className="rounded-sm" onClick={handleBulkConfirm}>
+                <CheckCheck className="h-4 w-4" />
+                Confirmar {selected.size}
+              </Button>
+            )}
+            <Button className="rounded-sm" onClick={() => setShowForm(true)}>
+              <Plus className="h-4 w-4" /> Nova transação
+            </Button>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="divide-y divide-border">
@@ -308,12 +320,12 @@ export default function TransacoesPage() {
                           />
                         )}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(t.date)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-secondary-foreground">{formatDate(t.date)}</td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-foreground">{t.description}</p>
                         {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{t.account?.name ?? '—'}</td>
+                      <td className="px-4 py-3 text-secondary-foreground">{t.account?.name ?? '—'}</td>
                       <td className="px-4 py-3">
                         {t.category ? (
                           <Badge variant="secondary">{t.category.name}</Badge>
