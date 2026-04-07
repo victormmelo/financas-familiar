@@ -26,6 +26,7 @@ import {
   createTransaction,
   confirmTransaction,
   bulkConfirm,
+  bulkSetCategory,
   updateTransaction,
   deleteTransaction,
 } from './transactions.service.js'
@@ -53,7 +54,17 @@ const mockTransaction = {
 }
 
 const mockAccount = { id: 'acc-1', familyId: 'family-1', name: 'Conta Corrente' }
-const mockCategory = { id: 'cat-1', familyId: 'family-1', name: 'Alimentação' }
+const mockCategory = {
+  id: 'cat-1',
+  familyId: 'family-1',
+  name: 'Alimentação',
+  type: 'EXPENSE' as const,
+  parentId: null,
+  icon: null,
+  color: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -200,6 +211,115 @@ describe('bulkConfirm', () => {
       },
       data: { status: 'CONFIRMED', confirmedAt: expect.any(Date) },
     })
+  })
+})
+
+describe('bulkSetCategory', () => {
+  it('deve aplicar categoria a várias transações do mesmo tipo', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([
+      { id: 'tx-1', type: 'EXPENSE' },
+      { id: 'tx-2', type: 'EXPENSE' },
+    ] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+    vi.mocked(prisma.transaction.updateMany).mockResolvedValue({ count: 2 })
+
+    const result = await bulkSetCategory('family-1', { ids: ['tx-1', 'tx-2'], categoryId: 'cat-1' })
+
+    expect(result.updated).toBe(2)
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['tx-1', 'tx-2'] },
+        familyId: 'family-1',
+        status: 'DRAFT',
+      },
+      data: { categoryId: 'cat-1' },
+    })
+  })
+
+  it('deve aceitar categoria BOTH para receitas', async () => {
+    const bothCat = { ...mockCategory, id: 'cat-both', type: 'BOTH' as const }
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'INCOME' }] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(bothCat as never)
+    vi.mocked(prisma.transaction.updateMany).mockResolvedValue({ count: 1 })
+
+    await bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-both' })
+
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { categoryId: 'cat-both' },
+      }),
+    )
+  })
+
+  it('deve remover categoria quando categoryId é null', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+    vi.mocked(prisma.transaction.updateMany).mockResolvedValue({ count: 1 })
+
+    await bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: null })
+
+    expect(prisma.category.findFirst).not.toHaveBeenCalled()
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { categoryId: null },
+      }),
+    )
+  })
+
+  it('deve deduplicar ids antes de validar', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+    vi.mocked(prisma.transaction.updateMany).mockResolvedValue({ count: 1 })
+
+    await bulkSetCategory('family-1', { ids: ['tx-1', 'tx-1'], categoryId: 'cat-1' })
+
+    expect(prisma.transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['tx-1'] },
+        }),
+      }),
+    )
+  })
+
+  it('deve lançar 400 quando faltar transação em rascunho', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+
+    await expect(
+      bulkSetCategory('family-1', { ids: ['tx-1', 'tx-2'], categoryId: 'cat-1' }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('deve lançar 400 quando misturar receita e despesa', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([
+      { id: 'tx-1', type: 'EXPENSE' },
+      { id: 'tx-2', type: 'INCOME' },
+    ] as never)
+
+    await expect(
+      bulkSetCategory('family-1', { ids: ['tx-1', 'tx-2'], categoryId: 'cat-1' }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('deve lançar 400 quando categoria for de tipo incompatível', async () => {
+    const incomeCat = { ...mockCategory, id: 'cat-inc', type: 'INCOME' as const }
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(incomeCat as never)
+
+    await expect(
+      bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-inc' }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('deve lançar 404 quando categoria não existir na família', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(null)
+
+    await expect(
+      bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-x' }),
+    ).rejects.toMatchObject({ statusCode: 404 })
   })
 })
 

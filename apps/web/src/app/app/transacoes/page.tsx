@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt, RotateCcw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt, RotateCcw, Tag } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +15,7 @@ import {
   useTransactions,
   useConfirmTransaction,
   useBulkConfirmTransactions,
+  useBulkSetTransactionCategory,
   useDeleteTransaction,
   type Transaction,
   type TransactionFilters,
@@ -31,16 +32,34 @@ export default function TransacoesPage() {
   const [editingTx, setEditingTx] = useState<Transaction | undefined>()
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkCategoryPanelOpen, setBulkCategoryPanelOpen] = useState(false)
+  const [bulkCategoryId, setBulkCategoryId] = useState('')
 
   const { data, isLoading } = useTransactions(filters)
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const confirm = useConfirmTransaction()
   const bulkConfirm = useBulkConfirmTransactions()
+  const bulkSetCategory = useBulkSetTransactionCategory()
   const remove = useDeleteTransaction()
 
   const transactions = data?.data ?? []
   const totalPages = data?.totalPages ?? 1
+
+  const selectedTxs = useMemo(
+    () => transactions.filter((t) => selected.has(t.id)),
+    [transactions, selected],
+  )
+  const bulkTypes = useMemo(() => new Set(selectedTxs.map((t) => t.type)), [selectedTxs])
+  const canBulkCategorize = selectedTxs.length > 0 && bulkTypes.size === 1
+  const bulkType = canBulkCategorize ? selectedTxs[0]!.type : undefined
+  const filteredBulkCategories = categories?.filter(
+    (c) => bulkType !== undefined && (c.type === bulkType || c.type === 'BOTH'),
+  )
+
+  useEffect(() => {
+    if (!canBulkCategorize) setBulkCategoryPanelOpen(false)
+  }, [canBulkCategorize])
 
   function setFilter(key: keyof TransactionFilters, value: string) {
     setFilters((f) => ({ ...f, [key]: value || undefined, page: 1 }))
@@ -85,6 +104,27 @@ export default function TransacoesPage() {
       setSelected(new Set())
     } catch {
       toast('Erro ao confirmar em lote', 'error')
+    }
+  }
+
+  async function handleBulkSetCategory() {
+    if (!canBulkCategorize || selected.size === 0) return
+    try {
+      const n = await bulkSetCategory.mutateAsync({
+        ids: Array.from(selected),
+        categoryId: bulkCategoryId === '' ? null : bulkCategoryId,
+      })
+      toast(
+        n.updated === 1
+          ? 'Categoria aplicada a 1 transação.'
+          : `Categoria aplicada a ${n.updated} transações.`,
+        'success',
+      )
+      setSelected(new Set())
+      setBulkCategoryPanelOpen(false)
+      setBulkCategoryId('')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao aplicar categoria', 'error')
     }
   }
 
@@ -237,16 +277,70 @@ export default function TransacoesPage() {
       <Card>
         <CardHeader className="flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <CardTitle className="text-base font-semibold tracking-tight">Transações</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            {selected.size > 0 && (
-              <Button variant="secondary" size="sm" className="rounded-sm" onClick={handleBulkConfirm}>
-                <CheckCheck className="h-4 w-4" />
-                Confirmar {selected.size}
+          <div className="flex w-full min-w-0 flex-col items-stretch gap-2 sm:ml-auto sm:max-w-none sm:items-end">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {selected.size > 0 && (
+                <>
+                  <Button variant="secondary" size="sm" className="rounded-sm" onClick={handleBulkConfirm}>
+                    <CheckCheck className="h-4 w-4" />
+                    Confirmar {selected.size}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-sm"
+                    disabled={!canBulkCategorize}
+                    title={
+                      canBulkCategorize
+                        ? undefined
+                        : 'Selecione apenas receitas ou apenas despesas para categorizar em lote'
+                    }
+                    onClick={() => setBulkCategoryPanelOpen((o) => !o)}
+                  >
+                    <Tag className="h-4 w-4" />
+                    Categorizar
+                  </Button>
+                </>
+              )}
+              <Button className="rounded-sm" onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4" /> Nova transação
               </Button>
+            </div>
+            {selected.size > 0 && bulkCategoryPanelOpen && canBulkCategorize && (
+              <div className="flex w-full min-w-0 flex-col gap-2 rounded-sm border border-border bg-muted/30 p-3 sm:flex-row sm:items-end sm:justify-end">
+                <div className="min-w-0 flex-1 space-y-1 sm:max-w-xs">
+                  <Label
+                    htmlFor="bulk-category-select"
+                    className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    Categoria
+                  </Label>
+                  <Select
+                    id="bulk-category-select"
+                    className="h-8 w-full text-sm"
+                    value={bulkCategoryId}
+                    onChange={(e) => setBulkCategoryId(e.target.value)}
+                  >
+                    <option value="">Sem categoria</option>
+                    {filteredBulkCategories?.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="shrink-0 rounded-sm"
+                  isLoading={bulkSetCategory.isPending}
+                  onClick={handleBulkSetCategory}
+                >
+                  Aplicar a {selected.size}
+                </Button>
+              </div>
             )}
-            <Button className="rounded-sm" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4" /> Nova transação
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">

@@ -3,6 +3,7 @@ import {
   createTransactionSchema,
   updateTransactionSchema,
   bulkConfirmSchema,
+  bulkSetCategorySchema,
   listTransactionsSchema,
 } from './transactions.schema.js'
 import * as transactionsService from './transactions.service.js'
@@ -37,6 +38,13 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload
     const input = bulkConfirmSchema.parse(request.body)
     return transactionsService.bulkConfirm(user.familyId, input)
+  })
+
+  // POST /transactions/bulk-set-category
+  fastify.post('/bulk-set-category', async (request) => {
+    const user = request.user as TokenPayload
+    const input = bulkSetCategorySchema.parse(request.body)
+    return transactionsService.bulkSetCategory(user.familyId, input)
   })
 
   // POST /transactions/:id/confirm

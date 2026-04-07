@@ -28,6 +28,12 @@ export const bulkConfirmSchema = z.object({
   ids: z.array(z.string().uuid()).min(1, 'Forneça ao menos um ID'),
 })
 
+/** `null` ou campo omitido remove a categoria das transações selecionadas. */
+export const bulkSetCategorySchema = z.object({
+  ids: z.array(z.string().uuid()).min(1, 'Forneça ao menos um ID'),
+  categoryId: z.union([z.string().uuid(), z.null()]).optional(),
+})
+
 export const listTransactionsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -42,4 +48,5 @@ export const listTransactionsSchema = z.object({
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>
 export type BulkConfirmInput = z.infer<typeof bulkConfirmSchema>
+export type BulkSetCategoryInput = z.infer<typeof bulkSetCategorySchema>
 export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>

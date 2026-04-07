@@ -3,6 +3,7 @@ import type {
   CreateTransactionInput,
   UpdateTransactionInput,
   BulkConfirmInput,
+  BulkSetCategoryInput,
   ListTransactionsInput,
 } from './transactions.schema.js'
 
@@ -127,6 +128,67 @@ export async function bulkConfirm(familyId: string, input: BulkConfirmInput) {
     data: { status: 'CONFIRMED', confirmedAt: new Date() },
   })
   return { confirmed: count }
+}
+
+function categoryMatchesTransactionType(
+  categoryType: 'INCOME' | 'EXPENSE' | 'BOTH',
+  transactionType: 'INCOME' | 'EXPENSE',
+): boolean {
+  return categoryType === 'BOTH' || categoryType === transactionType
+}
+
+export async function bulkSetCategory(familyId: string, input: BulkSetCategoryInput) {
+  const uniqueIds = [...new Set(input.ids)]
+  const txs = await prisma.transaction.findMany({
+    where: {
+      id: { in: uniqueIds },
+      familyId,
+      status: 'DRAFT',
+    },
+    select: { id: true, type: true },
+  })
+
+  if (txs.length !== uniqueIds.length) {
+    throw Object.assign(
+      new Error('Uma ou mais transações não foram encontradas ou não estão em rascunho'),
+      { statusCode: 400 },
+    )
+  }
+
+  const types = new Set(txs.map((t) => t.type))
+  if (types.size !== 1) {
+    throw Object.assign(
+      new Error('Selecione apenas receitas ou apenas despesas para definir categoria em lote'),
+      { statusCode: 400 },
+    )
+  }
+
+  const transactionType = txs[0]!.type
+  const categoryIdToSet = input.categoryId === undefined || input.categoryId === null ? null : input.categoryId
+
+  if (categoryIdToSet !== null) {
+    const category = await prisma.category.findFirst({
+      where: { id: categoryIdToSet, familyId },
+    })
+    if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+    if (!categoryMatchesTransactionType(category.type, transactionType)) {
+      throw Object.assign(
+        new Error('Categoria incompatível com o tipo das transações selecionadas'),
+        { statusCode: 400 },
+      )
+    }
+  }
+
+  const { count } = await prisma.transaction.updateMany({
+    where: {
+      id: { in: uniqueIds },
+      familyId,
+      status: 'DRAFT',
+    },
+    data: { categoryId: categoryIdToSet },
+  })
+
+  return { updated: count }
 }
 
 export async function updateTransaction(familyId: string, transactionId: string, input: UpdateTransactionInput) {

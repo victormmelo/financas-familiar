@@ -124,6 +124,18 @@ export function useBulkConfirmTransactions() {
   })
 }
 
+export function useBulkSetTransactionCategory() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { ids: string[]; categoryId: string | null }) =>
+      api.post<{ updated: number }>('/transactions/bulk-set-category', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
 export function useDeleteTransaction() {
   const qc = useQueryClient()
   return useMutation({
