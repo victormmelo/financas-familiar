@@ -6,6 +6,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/app/dashboard': { title: 'Dashboard', subtitle: 'Visão geral operacional' },
   '/app/transacoes': { title: 'Transações', subtitle: 'Monitoramento de lançamentos' },
   '/app/contas': { title: 'Contas', subtitle: 'Controle de contas e saldos' },
+  '/app/categorias': { title: 'Categorias', subtitle: 'Classificação de receitas e despesas' },
   '/app/cartoes': { title: 'Cartões de Crédito', subtitle: 'Faturas e limites' },
   '/app/transferencias': { title: 'Transferências', subtitle: 'Movimentações entre contas' },
   '/app/metas': { title: 'Metas Financeiras', subtitle: 'Acompanhamento de progresso' },

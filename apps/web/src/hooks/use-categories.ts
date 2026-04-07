@@ -11,10 +11,36 @@ export interface Category {
   children?: Category[]
 }
 
+/** Shape returned by Prisma JSON (relation name `subcategories`) */
+interface CategoryApiNode {
+  id: string
+  name: string
+  type: 'INCOME' | 'EXPENSE' | 'BOTH'
+  parentId?: string | null
+  icon?: string | null
+  color?: string | null
+  subcategories?: CategoryApiNode[]
+}
+
+function normalizeCategory(cat: CategoryApiNode): Category {
+  return {
+    id: cat.id,
+    name: cat.name,
+    type: cat.type,
+    parentId: cat.parentId ?? undefined,
+    icon: cat.icon ?? undefined,
+    color: cat.color ?? undefined,
+    children: cat.subcategories?.map(normalizeCategory) ?? [],
+  }
+}
+
 export function useCategories() {
   return useQuery({
     queryKey: ['categories'],
-    queryFn: () => api.get<Category[]>('/categories'),
+    queryFn: async () => {
+      const raw = await api.get<CategoryApiNode[]>('/categories')
+      return raw.map(normalizeCategory)
+    },
   })
 }
 
