@@ -21,6 +21,13 @@ const mcpTokensRoutes: FastifyPluginAsync = async (fastify) => {
     return { data: tokens }
   })
 
+  // GET /mcp-tokens/:id/reveal — token completo (somente dono; use para copiar com segurança no cliente)
+  fastify.get<{ Params: { id: string } }>('/:id/reveal', async (request) => {
+    const user = request.user as TokenPayload
+    const result = await mcpTokensService.getMcpTokenPlain(user.sub, request.params.id)
+    return { data: result }
+  })
+
   // DELETE /mcp-tokens/:id — revoga token
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const user = request.user as TokenPayload

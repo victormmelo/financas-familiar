@@ -450,6 +450,28 @@ export interface StatementItemFilters {
   limit?: number
 }
 
+// ─── MCP tokens (integração Cursor / clientes MCP) ───────────────────────────
+
+export interface McpTokenListItem {
+  id: string
+  label: string
+  /** Valor mascarado para exibição; nunca o segredo completo. */
+  tokenPreview: string
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+export interface McpTokenCreated {
+  id: string
+  label: string
+  token: string
+  createdAt: string
+}
+
+export interface CreateMcpTokenInput {
+  label: string
+}
+
 // ─── API Error ────────────────────────────────────────────────────────────────
 
 export interface ApiErrorResponse {

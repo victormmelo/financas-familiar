@@ -1,3 +1,4 @@
+import './load-env.js'
 import express from 'express'
 import { randomUUID } from 'crypto'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'

@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Receipt,
   LogOut,
+  KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth.store'
@@ -31,6 +32,7 @@ const navItems = [
   { href: '/app/orcamentos', label: 'Orçamentos', icon: PieChart },
   { href: '/app/relatorios', label: 'Relatórios', icon: FileText },
   { href: '/app/reconciliacao', label: 'Reconciliação', icon: RefreshCw },
+  { href: '/app/integracoes/mcp', label: 'Tokens MCP', icon: KeyRound },
 ]
 
 export function Sidebar() {
