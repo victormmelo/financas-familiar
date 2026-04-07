@@ -24,6 +24,7 @@ import {
   compareYearMonth,
   formatMonthYearLabel,
 } from '@/lib/utils'
+import { useMediaQuery } from '@/lib/use-media-query'
 import DashboardRouteLoading from './loading'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
@@ -36,10 +37,44 @@ const chartTooltipStyle = {
 } as const
 const chartTooltipLabelColor = 'hsl(120, 27%, 92%)'
 
+function categoryPieLabel(props: {
+  name: string
+  percent?: number
+  cx?: number
+  cy?: number
+  midAngle?: number
+  innerRadius?: number
+  outerRadius?: number
+}) {
+  const { name, percent, cx, cy, midAngle, innerRadius, outerRadius } = props
+  const ir = innerRadius ?? 0
+  const or = outerRadius ?? 0
+  const radius = ir + (or - ir) * 0.65
+  const angle = ((midAngle ?? 0) * Math.PI) / 180
+  const cxN = cx ?? 0
+  const cyN = cy ?? 0
+  const x = cxN + radius * Math.cos(-angle)
+  const y = cyN + radius * Math.sin(-angle)
+  const pct = ((percent ?? 0) * 100).toFixed(0)
+  return (
+    <text
+      x={x}
+      y={y}
+      fill={chartTooltipLabelColor}
+      textAnchor={x > cxN ? 'start' : 'end'}
+      dominantBaseline="central"
+      fontSize={11}
+    >
+      {`${name} ${pct}%`}
+    </text>
+  )
+}
+
 function DashboardContent() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const isMdUp = useMediaQuery('(min-width: 768px)')
   const now = currentMonth()
 
   const ano = searchParams.get('ano')
@@ -125,6 +160,11 @@ function DashboardContent() {
       .slice(0, 6)
   }, [transactions])
 
+  const categoryTotal = useMemo(
+    () => categoryData.reduce((sum, d) => sum + d.value, 0),
+    [categoryData],
+  )
+
   const budgetItems = budgets?.slice(0, 5) ?? []
   const topGoals = goals?.slice(0, 3) ?? []
   const monthBalance = monthIncome - monthExpense
@@ -133,7 +173,7 @@ function DashboardContent() {
   const periodLabel = formatMonthYearLabel(year, month)
 
   return (
-    <div className="flex flex-col gap-8 p-6">
+    <div className="flex flex-col gap-6 py-4 sm:gap-8 sm:py-6">
       <MonthNavigator
         year={year}
         month={month}
@@ -191,22 +231,22 @@ function DashboardContent() {
                 {accounts.filter((a) => a.isActive).map((account) => (
                   <div
                     key={account.id}
-                    className="flex items-center justify-between border-b border-border py-2 last:border-0"
+                    className="flex flex-col gap-2 border-b border-border py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <div
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                         style={{ backgroundColor: account.color ?? '#6366f1' }}
                       >
                         {account.name.charAt(0)}
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{account.name}</p>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{account.name}</p>
                         <p className="text-xs text-muted-foreground">{account.type}</p>
                       </div>
                     </div>
                     <span
-                      className={`font-mono text-sm font-semibold tabular-nums ${account.balance >= 0 ? 'text-foreground' : 'text-rose-400'}`}
+                      className={`self-end font-mono text-sm font-semibold tabular-nums sm:self-auto ${account.balance >= 0 ? 'text-foreground' : 'text-rose-400'}`}
                     >
                       {formatCurrency(account.balance)}
                     </span>
@@ -238,50 +278,54 @@ function DashboardContent() {
           </CardHeader>
           <CardContent>
             {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    labelLine={false}
-                    label={({ name, percent, cx, cy, midAngle, innerRadius, outerRadius }) => {
-                      const ir = innerRadius ?? 0
-                      const or = outerRadius ?? 0
-                      const radius = ir + (or - ir) * 0.65
-                      const angle = ((midAngle ?? 0) * Math.PI) / 180
-                      const x = (cx ?? 0) + radius * Math.cos(-angle)
-                      const y = (cy ?? 0) + radius * Math.sin(-angle)
-                      const pct = ((percent ?? 0) * 100).toFixed(0)
-                      return (
-                        <text
-                          x={x}
-                          y={y}
-                          fill={chartTooltipLabelColor}
-                          textAnchor={x > (cx ?? 0) ? 'start' : 'end'}
-                          dominantBaseline="central"
-                          fontSize={11}
-                        >
-                          {`${name} ${pct}%`}
-                        </text>
-                      )
-                    }}
-                  >
-                    {categoryData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              <div>
+                <ResponsiveContainer width="100%" height={isMdUp ? 220 : 200}>
+                  <PieChart>
+                    <Pie
+                      data={categoryData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={isMdUp ? 80 : 68}
+                      labelLine={false}
+                      label={isMdUp ? categoryPieLabel : false}
+                    >
+                      {categoryData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(v: number) => formatCurrency(v)}
+                      contentStyle={chartTooltipStyle}
+                      labelStyle={{ color: chartTooltipLabelColor }}
+                      itemStyle={{ color: chartTooltipLabelColor }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {!isMdUp && categoryTotal > 0 ? (
+                  <ul className="mt-3 space-y-2 border-t border-border pt-3" aria-label="Legenda do gráfico">
+                    {categoryData.map((d, i) => (
+                      <li
+                        key={d.name}
+                        className="flex items-center justify-between gap-2 text-sm text-foreground"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                            aria-hidden
+                          />
+                          <span className="truncate">{d.name}</span>
+                        </span>
+                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground sm:text-sm">
+                          {((d.value / categoryTotal) * 100).toFixed(0)}% · {formatCurrency(d.value)}
+                        </span>
+                      </li>
                     ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(v: number) => formatCurrency(v)}
-                    contentStyle={chartTooltipStyle}
-                    labelStyle={{ color: chartTooltipLabelColor }}
-                    itemStyle={{ color: chartTooltipLabelColor }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+                  </ul>
+                ) : null}
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-3 py-10 text-center">
                 <div className="rounded-full bg-muted p-4">
@@ -303,10 +347,12 @@ function DashboardContent() {
               <div className="space-y-4">
                 {budgetItems.map((b) => (
                   <div key={b.id}>
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span className="font-medium text-foreground">{b.category?.name ?? '—'}</span>
+                    <div className="mb-1 flex flex-col items-start gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:text-sm">
+                      <span className="min-w-0 truncate font-medium text-foreground">
+                        {b.category?.name ?? '—'}
+                      </span>
                       <span
-                        className={b.isOverBudget ? 'font-semibold text-rose-400' : 'text-muted-foreground'}
+                        className={`shrink-0 font-mono tabular-nums ${b.isOverBudget ? 'font-semibold text-rose-400' : 'text-muted-foreground'}`}
                       >
                         {formatCurrency(b.spentAmount)} / {formatCurrency(b.limitAmount)}
                       </span>
@@ -349,9 +395,9 @@ function DashboardContent() {
               <div className="space-y-4">
                 {topGoals.map((g) => (
                   <div key={g.id}>
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span className="font-medium text-foreground">{g.name}</span>
-                      <span className="text-muted-foreground">{g.progressPercent.toFixed(0)}%</span>
+                    <div className="mb-1 flex flex-col items-start gap-0.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+                      <span className="min-w-0 truncate font-medium text-foreground">{g.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{g.progressPercent.toFixed(0)}%</span>
                     </div>
                     <ProgressBar value={g.progressPercent} barClassName="bg-primary" />
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -382,22 +428,25 @@ function DashboardContent() {
           {transactions.length > 0 ? (
             <div className="divide-y divide-border">
               {transactions.slice(0, 8).map((t) => (
-                <div key={t.id} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
+                <div
+                  key={t.id}
+                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
                     <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold text-white ${t.type === 'INCOME' ? 'bg-emerald-500' : 'bg-rose-400'}`}
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${t.type === 'INCOME' ? 'bg-emerald-500' : 'bg-rose-400'}`}
                     >
                       {t.type === 'INCOME' ? '+' : '-'}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{t.description}</p>
-                      <p className="text-xs text-muted-foreground">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{t.description}</p>
+                      <p className="truncate text-xs text-muted-foreground">
                         {t.account?.name} · {formatDate(t.date)}
                       </p>
                     </div>
                   </div>
                   <span
-                    className={`font-mono text-sm font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}
+                    className={`self-end font-mono text-sm font-semibold tabular-nums sm:self-auto ${t.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}
                   >
                     {t.type === 'INCOME' ? '+' : '-'}
                     {formatCurrency(t.amount)}
@@ -438,11 +487,11 @@ function SummaryCard({
   return (
     <Card>
       <CardContent className="pt-6">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${bg}`}>{icon}</div>
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <p className="min-w-0 flex-1 text-balance text-sm text-muted-foreground">{title}</p>
+          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${bg}`}>{icon}</div>
         </div>
-        <p className={`font-mono text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
+        <p className={`font-mono text-xl font-semibold tabular-nums sm:text-2xl ${valueClass}`}>{value}</p>
       </CardContent>
     </Card>
   )

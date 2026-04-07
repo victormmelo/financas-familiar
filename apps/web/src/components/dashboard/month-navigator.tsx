@@ -36,7 +36,7 @@ export function MonthNavigator({
           type="button"
           variant="outline"
           size="icon"
-          className="h-9 w-9 shrink-0 border-border"
+          className="h-11 w-11 shrink-0 border-border sm:h-9 sm:w-9"
           onClick={onPrev}
           aria-label="Mês anterior"
         >
@@ -50,7 +50,7 @@ export function MonthNavigator({
           type="button"
           variant="outline"
           size="icon"
-          className="h-9 w-9 shrink-0 border-border"
+          className="h-11 w-11 shrink-0 border-border sm:h-9 sm:w-9"
           onClick={onNext}
           disabled={!canGoNext}
           aria-label="Próximo mês"

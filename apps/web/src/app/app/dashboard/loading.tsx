@@ -3,14 +3,22 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
 export default function DashboardLoading() {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 py-4 sm:gap-8 sm:py-6">
+      <div className="rounded-md border border-border bg-card px-3 py-3">
+        <div className="flex items-center justify-center gap-2 sm:justify-start">
+          <Skeleton className="h-11 w-11 shrink-0 rounded-sm sm:h-9 sm:w-9" />
+          <Skeleton className="h-10 min-w-[12rem] max-w-[14rem] sm:min-w-[14rem]" />
+          <Skeleton className="h-11 w-11 shrink-0 rounded-sm sm:h-9 sm:w-9" />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-3">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-9 w-9 rounded-lg" />
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <Skeleton className="h-4 w-28 flex-1" />
+                <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
               </div>
               <Skeleton className="h-8 w-36" />
             </CardContent>
