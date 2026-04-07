@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 
-/** Carrega `.env` da raiz do monorepo e do pacote (Node não lê `.env` sozinho). */
+/** Fonte principal: `.env` na raiz do monorepo. Se existir `apps/api/.env`, aplica depois (override local). */
 function loadDotenvFromAncestors(): void {
   const found: string[] = []
   let dir = process.cwd()

@@ -2,7 +2,7 @@ import { config as loadEnv } from 'dotenv'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-/** Carrega `.env` da raiz do monorepo (cwd costuma ser `apps/mcp` no `npm run dev`). */
+/** Fonte principal: `.env` na raiz; cwd costuma ser `apps/mcp` (sobe diretórios até encontrar ficheiros). */
 function loadDotenvFromAncestors(): void {
   const found: string[] = []
   let dir = process.cwd()
