@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Prisma
 prisma/migrations/**/migration.sql
+
+# TestSprite (planos, túnel, credenciais em tmp/config.json)
+testsprite_tests/
