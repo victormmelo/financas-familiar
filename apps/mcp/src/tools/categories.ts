@@ -18,6 +18,26 @@ export const categoryToolDefinitions = [
       },
     },
   },
+  {
+    name: 'create_category',
+    description:
+      'Cria uma categoria (receita, despesa ou ambos). Apenas ADMIN. Use para novas classificações como moradia, saúde, etc.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Nome da categoria' },
+        type: {
+          type: 'string',
+          enum: ['INCOME', 'EXPENSE', 'BOTH'],
+          description: 'INCOME, EXPENSE ou BOTH (padrão: EXPENSE)',
+        },
+        parentId: { type: 'string', description: 'UUID da categoria pai (subcategoria)' },
+        icon: { type: 'string', description: 'Ícone (opcional)' },
+        color: { type: 'string', description: 'Cor hex (opcional)' },
+      },
+      required: ['name'],
+    },
+  },
 ]
 
 export function registerCategoryHandlers(
@@ -47,5 +67,43 @@ export function registerCategoryHandlers(
     })
 
     return { categories }
+  })
+
+  toolHandlerMap.set('create_category', async (args) => {
+    if (context.role !== 'ADMIN') {
+      throw new Error('Apenas ADMINs podem criar categorias')
+    }
+
+    const parsed = z
+      .object({
+        name: z.string().min(1, 'Nome obrigatório'),
+        type: z.enum(['INCOME', 'EXPENSE', 'BOTH']).default('EXPENSE'),
+        parentId: z.string().uuid().optional(),
+        icon: z.string().optional(),
+        color: z.string().optional(),
+      })
+      .parse(args ?? {})
+
+    if (parsed.parentId) {
+      const parent = await prisma.category.findFirst({
+        where: { id: parsed.parentId, familyId },
+      })
+      if (!parent) {
+        throw new Error('Categoria pai não encontrada')
+      }
+    }
+
+    const category = await prisma.category.create({
+      data: {
+        familyId,
+        name: parsed.name,
+        type: parsed.type,
+        parentId: parsed.parentId,
+        icon: parsed.icon,
+        color: parsed.color,
+      },
+    })
+
+    return { category }
   })
 }
