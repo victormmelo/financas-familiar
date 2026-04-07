@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { createTransferSchema } from './transfers.schema.js'
+import { createTransferSchema, listTransfersSchema } from './transfers.schema.js'
 import * as transfersService from './transfers.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
 
@@ -9,7 +9,8 @@ const transfersRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /transfers
   fastify.get('/', async (request) => {
     const user = request.user as TokenPayload
-    return transfersService.listTransfers(user.familyId)
+    const query = listTransfersSchema.parse(request.query)
+    return transfersService.listTransfers(user.familyId, query)
   })
 
   // POST /transfers

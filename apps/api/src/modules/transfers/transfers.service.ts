@@ -1,16 +1,53 @@
 import { prisma } from '../../lib/prisma.js'
 import type { Prisma } from '@prisma/client'
-import type { CreateTransferInput } from './transfers.schema.js'
+import type { CreateTransferInput, ListTransfersInput } from './transfers.schema.js'
 
-export async function listTransfers(familyId: string) {
-  return prisma.transfer.findMany({
-    where: { familyId },
-    include: {
-      fromAccount: { select: { id: true, name: true } },
-      toAccount: { select: { id: true, name: true } },
+export async function listTransfers(familyId: string, query: ListTransfersInput) {
+  const { page, limit, fromAccountId, toAccountId, startDate, endDate } = query
+  const skip = (page - 1) * limit
+
+  const where = {
+    familyId,
+    ...(fromAccountId && { fromAccountId }),
+    ...(toAccountId && { toAccountId }),
+    ...(startDate || endDate
+      ? {
+          date: {
+            ...(startDate && { gte: new Date(startDate) }),
+            ...(endDate && { lte: new Date(endDate) }),
+          },
+        }
+      : {}),
+  }
+
+  const [rows, total] = await Promise.all([
+    prisma.transfer.findMany({
+      where,
+      include: {
+        fromAccount: { select: { id: true, name: true } },
+        toAccount: { select: { id: true, name: true } },
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      skip,
+      take: limit,
+    }),
+    prisma.transfer.count({ where }),
+  ])
+
+  const data = rows.map((t) => ({
+    ...t,
+    amount: Number(t.amount),
+  }))
+
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
     },
-    orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-  })
+  }
 }
 
 export async function createTransfer(familyId: string, userId: string, input: CreateTransferInput) {
