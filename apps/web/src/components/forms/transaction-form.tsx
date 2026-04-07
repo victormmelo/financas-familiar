@@ -103,11 +103,16 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} className="max-w-md" preventClose={isSubmitting}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      className="w-full max-w-md"
+      preventClose={isSubmitting}
+    >
       <DialogHeader title={transaction ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
               <Select error={errors.type?.message} {...register('type')}>
@@ -178,12 +183,14 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" type="button" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button type="submit" isLoading={isSubmitting}>
-            {transaction ? 'Salvar' : 'Criar'}
-          </Button>
+          <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+            <Button variant="outline" type="button" className="w-full sm:w-auto" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button type="submit" className="w-full sm:w-auto" isLoading={isSubmitting}>
+              {transaction ? 'Salvar' : 'Criar'}
+            </Button>
+          </div>
         </DialogFooter>
       </form>
     </Dialog>
