@@ -12,8 +12,21 @@ export function formatCurrency(value: number): string {
   }).format(value)
 }
 
+/** Apenas data calendário YYYY-MM-DD (sem hora/timezone na string). */
+const PLAIN_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date + 'T00:00:00') : date
+  const d =
+    typeof date === 'string'
+      ? (() => {
+          const s = date.trim()
+          if (!s) return new Date(NaN)
+          return PLAIN_DATE_RE.test(s) ? new Date(`${s}T00:00:00`) : new Date(s)
+        })()
+      : date
+  if (Number.isNaN(d.getTime())) {
+    return '—'
+  }
   return new Intl.DateTimeFormat('pt-BR').format(d)
 }
 
