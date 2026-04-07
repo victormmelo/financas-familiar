@@ -39,6 +39,11 @@ export function currentMonth() {
   return { month: now.getMonth() + 1, year: now.getFullYear() }
 }
 
+/** Último dia do mês (month 1–12), para intervalos YYYY-MM-DD inclusivos. */
+export function lastDayOfMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
 export function getAccountTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     CHECKING: 'Conta Corrente',

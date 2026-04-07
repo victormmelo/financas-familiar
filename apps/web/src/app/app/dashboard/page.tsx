@@ -10,7 +10,7 @@ import { useAccounts } from '@/hooks/use-accounts'
 import { useTransactions } from '@/hooks/use-transactions'
 import { useBudgets } from '@/hooks/use-budgets'
 import { useGoals } from '@/hooks/use-goals'
-import { formatCurrency, currentMonth, getMonthName } from '@/lib/utils'
+import { formatCurrency, currentMonth, getMonthName, lastDayOfMonth } from '@/lib/utils'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
 
@@ -24,29 +24,33 @@ const chartTooltipLabelColor = 'hsl(120, 27%, 92%)'
 
 export default function DashboardPage() {
   const { month, year } = currentMonth()
+  const ym = `${year}-${String(month).padStart(2, '0')}`
+  const lastDay = lastDayOfMonth(year, month)
   const { data: accounts } = useAccounts()
   const { data: transactionsData } = useTransactions({
     status: 'CONFIRMED',
-    startDate: `${year}-${String(month).padStart(2, '0')}-01`,
-    endDate: `${year}-${String(month).padStart(2, '0')}-31`,
+    startDate: `${ym}-01`,
+    endDate: `${ym}-${String(lastDay).padStart(2, '0')}`,
     limit: 100,
   })
   const { data: budgets } = useBudgets({ referenceMonth: month, referenceYear: year })
   const { data: goals } = useGoals()
 
   const totalBalance = useMemo(
-    () => accounts?.reduce((sum, a) => sum + a.balance, 0) ?? 0,
+    () => accounts?.reduce((sum, a) => sum + Number(a.balance), 0) ?? 0,
     [accounts],
   )
 
   const transactions = transactionsData?.data ?? []
 
   const monthIncome = useMemo(
-    () => transactions.filter((t) => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0),
+    () =>
+      transactions.filter((t) => t.type === 'INCOME').reduce((s, t) => s + Number(t.amount), 0),
     [transactions],
   )
   const monthExpense = useMemo(
-    () => transactions.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0),
+    () =>
+      transactions.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount), 0),
     [transactions],
   )
 
@@ -56,7 +60,7 @@ export default function DashboardPage() {
       .filter((t) => t.type === 'EXPENSE' && t.category)
       .forEach((t) => {
         const name = t.category!.name
-        map[name] = (map[name] ?? 0) + t.amount
+        map[name] = (map[name] ?? 0) + Number(t.amount)
       })
     return Object.entries(map)
       .map(([name, value]) => ({ name, value }))

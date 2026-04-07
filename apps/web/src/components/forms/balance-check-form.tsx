@@ -1,16 +1,26 @@
 'use client'
 
 import { useState } from 'react'
+import { Controller, useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useBalanceSummary } from '@/hooks/use-reconciliation'
-import { formatCurrency } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
+import { normalizeReaisForApi } from '@financas/shared-types'
 import { CheckCircle, AlertTriangle, Receipt } from 'lucide-react'
+
+const schema = z.object({
+  accountId: z.string().min(1, 'Selecione uma conta'),
+  reportedBalance: z.number({ invalid_type_error: 'Informe o saldo real' }),
+})
+
+type FormData = z.infer<typeof schema>
 
 interface Props {
   onViewPendingItems?: (accountId: string) => void
@@ -18,44 +28,54 @@ interface Props {
 
 export function BalanceCheckForm({ onViewPendingItems }: Props) {
   const { data: accounts } = useAccounts()
-  const [accountId, setAccountId] = useState('')
-  const [reportedBalanceInput, setReportedBalanceInput] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [queryParams, setQueryParams] = useState<{ accountId: string; reportedBalance: number } | null>(
+    null,
+  )
 
-  const reportedBalance = parseFloat(reportedBalanceInput.replace(',', '.'))
-  const isValidInput = accountId && !isNaN(reportedBalance)
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { accountId: '' },
+  })
+
+  const { onChange: onAccountChange, ...accountRegister } = register('accountId')
 
   const { data: balanceData, isFetching } = useBalanceSummary(
-    submitted && isValidInput ? accountId : undefined,
-    submitted && isValidInput ? reportedBalance : undefined,
+    queryParams?.accountId,
+    queryParams?.reportedBalance,
   )
 
   const summary = balanceData?.data
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!isValidInput) return
-    setSubmitted(true)
+  function onSubmit(data: FormData) {
+    setQueryParams({
+      accountId: data.accountId,
+      reportedBalance: normalizeReaisForApi(data.reportedBalance),
+    })
   }
 
   function handleReset() {
-    setSubmitted(false)
+    setQueryParams(null)
   }
 
   return (
     <div className="space-y-6">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="bc-account">Conta bancária</Label>
             <Select
               id="bc-account"
-              value={accountId}
+              error={errors.accountId?.message}
+              {...accountRegister}
               onChange={(e) => {
-                setAccountId(e.target.value)
-                setSubmitted(false)
+                onAccountChange(e)
+                setQueryParams(null)
               }}
-              required
             >
               <option value="">Selecione uma conta</option>
               {accounts?.map((a) => (
@@ -67,27 +87,38 @@ export function BalanceCheckForm({ onViewPendingItems }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="bc-balance">Saldo real (informado pelo banco)</Label>
-            <Input
-              id="bc-balance"
-              type="number"
-              step="0.01"
-              placeholder="0,00"
-              value={reportedBalanceInput}
-              onChange={(e) => {
-                setReportedBalanceInput(e.target.value)
-                setSubmitted(false)
-              }}
-              required
+            <Label htmlFor="bc-balance">Saldo informado pelo banco</Label>
+            <Controller
+              name="reportedBalance"
+              control={control}
+              render={({ field }) => (
+                <MoneyBrlInput
+                  id="bc-balance"
+                  placeholder="0,00"
+                  error={errors.reportedBalance?.message}
+                  value={field.value}
+                  onValueChange={(v) => {
+                    field.onChange(v)
+                    setQueryParams(null)
+                  }}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                  aria-describedby="bc-balance-hint"
+                />
+              )}
             />
+            <p id="bc-balance-hint" className="sr-only">
+              Saldo em reais (BRL), duas casas decimais.
+            </p>
           </div>
         </div>
 
         <div className="flex gap-2">
-          <Button type="submit" disabled={!isValidInput || isFetching}>
+          <Button type="submit" disabled={isFetching}>
             {isFetching ? 'Verificando...' : 'Verificar saldo'}
           </Button>
-          {submitted && (
+          {queryParams && (
             <Button type="button" variant="outline" onClick={handleReset}>
               Limpar
             </Button>
@@ -95,7 +126,7 @@ export function BalanceCheckForm({ onViewPendingItems }: Props) {
         </div>
       </form>
 
-      {submitted && summary && (
+      {queryParams && summary && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -151,7 +182,7 @@ export function BalanceCheckForm({ onViewPendingItems }: Props) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => onViewPendingItems(accountId)}
+                    onClick={() => onViewPendingItems(queryParams.accountId)}
                     className="text-xs"
                   >
                     Ver itens

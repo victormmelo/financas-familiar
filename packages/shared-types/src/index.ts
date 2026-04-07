@@ -472,6 +472,16 @@ export interface CreateMcpTokenInput {
   label: string
 }
 
+// ─── BRL money (input mascarado vs número canônico) ───────────────────────────
+
+export {
+  centsToReaisNumber,
+  formatBrlMoneyInputFromReais,
+  normalizeReaisForApi,
+  parseBrlMoneyStringToCents,
+  reaisNumberToCents,
+} from './money-brl'
+
 // ─── API Error ────────────────────────────────────────────────────────────────
 
 export interface ApiErrorResponse {

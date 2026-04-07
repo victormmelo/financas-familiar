@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -11,11 +11,15 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/
 import { useCreateGoal, useUpdateGoal, type Goal } from '@/hooks/use-goals'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
-  targetAmount: z.coerce.number().positive('Valor alvo obrigatório'),
-  currentAmount: z.coerce.number().min(0).default(0),
+  targetAmount: z
+    .number({ invalid_type_error: 'Informe o valor alvo' })
+    .positive('Valor alvo obrigatório'),
+  currentAmount: z.number({ invalid_type_error: 'Informe o valor atual' }).min(0).default(0),
   deadline: z.string().optional(),
   accountId: z.string().optional(),
 })
@@ -36,6 +40,7 @@ export function GoalForm({ open, onClose, goal }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -49,10 +54,23 @@ export function GoalForm({ open, onClose, goal }: Props) {
   async function onSubmit(data: FormData) {
     try {
       if (goal) {
-        await update.mutateAsync({ id: goal.id, ...data, accountId: data.accountId || null, deadline: data.deadline || null })
+        await update.mutateAsync({
+          id: goal.id,
+          ...data,
+          targetAmount: normalizeReaisForApi(data.targetAmount),
+          currentAmount: normalizeReaisForApi(data.currentAmount),
+          accountId: data.accountId || null,
+          deadline: data.deadline || null,
+        })
         toast('Meta atualizada!', 'success')
       } else {
-        await create.mutateAsync({ ...data, accountId: data.accountId || undefined, deadline: data.deadline || undefined })
+        await create.mutateAsync({
+          ...data,
+          targetAmount: normalizeReaisForApi(data.targetAmount),
+          currentAmount: normalizeReaisForApi(data.currentAmount),
+          accountId: data.accountId || undefined,
+          deadline: data.deadline || undefined,
+        })
         toast('Meta criada!', 'success')
       }
       reset()
@@ -73,12 +91,48 @@ export function GoalForm({ open, onClose, goal }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Valor Alvo (R$)</Label>
-              <Input type="number" step="0.01" placeholder="10000,00" error={errors.targetAmount?.message} {...register('targetAmount')} />
+              <Label>Valor alvo</Label>
+              <Controller
+                name="targetAmount"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder="10.000,00"
+                    error={errors.targetAmount?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="goal-target-hint"
+                  />
+                )}
+              />
+              <p id="goal-target-hint" className="sr-only">
+                Valor em reais (BRL), duas casas decimais.
+              </p>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor Atual (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0,00" error={errors.currentAmount?.message} {...register('currentAmount')} />
+              <Label>Valor atual</Label>
+              <Controller
+                name="currentAmount"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder="0,00"
+                    error={errors.currentAmount?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="goal-current-hint"
+                  />
+                )}
+              />
+              <p id="goal-current-hint" className="sr-only">
+                Valor em reais (BRL), duas casas decimais.
+              </p>
             </div>
           </div>
           <div className="space-y-1.5">

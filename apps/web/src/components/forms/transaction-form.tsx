@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -12,13 +12,17 @@ import { useAccounts } from '@/hooks/use-accounts'
 import { useCategories } from '@/hooks/use-categories'
 import { useCreateTransaction, useUpdateTransaction, type Transaction } from '@/hooks/use-transactions'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   accountId: z.string().min(1, 'Selecione uma conta'),
   categoryId: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']),
-  amount: z.coerce.number().positive('Valor deve ser positivo'),
+  amount: z
+    .number({ invalid_type_error: 'Informe o valor' })
+    .positive('Valor deve ser positivo'),
   description: z.string().min(1, 'Descrição obrigatória'),
   notes: z.string().optional(),
   date: z.string().min(1, 'Data obrigatória'),
@@ -41,6 +45,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     watch,
     reset,
@@ -75,7 +80,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
         await update.mutateAsync({
           id: transaction.id,
           categoryId: data.categoryId || null,
-          amount: data.amount,
+          amount: normalizeReaisForApi(data.amount),
           description: data.description,
           notes: data.notes || null,
           date: data.date,
@@ -84,6 +89,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
       } else {
         await create.mutateAsync({
           ...data,
+          amount: normalizeReaisForApi(data.amount),
           categoryId: data.categoryId || undefined,
           source: 'MANUAL',
         })
@@ -110,14 +116,26 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                error={errors.amount?.message}
-                {...register('amount')}
+              <Label>Valor</Label>
+              <Controller
+                name="amount"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder="0,00"
+                    error={errors.amount?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="transaction-amount-hint"
+                  />
+                )}
               />
+              <p id="transaction-amount-hint" className="sr-only">
+                Valor em reais (BRL), duas casas decimais.
+              </p>
             </div>
           </div>
           <div className="space-y-1.5">

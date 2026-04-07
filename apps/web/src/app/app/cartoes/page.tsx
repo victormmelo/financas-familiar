@@ -1,6 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { Controller, useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, CreditCard } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,8 +11,8 @@ import { Badge } from '@/components/ui/badge'
 import { Select } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CreditCardForm } from '@/components/forms/credit-card-form'
 import {
@@ -23,6 +26,7 @@ import {
 import { useAccounts } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
+import { formatBrlMoneyInputFromReais, normalizeReaisForApi } from '@financas/shared-types'
 
 export default function CartoesPage() {
   const { data: cards, isLoading } = useCreditCards()
@@ -179,6 +183,13 @@ export default function CartoesPage() {
   )
 }
 
+const payInvoiceFormSchema = z.object({
+  accountId: z.string().min(1, 'Selecione a conta'),
+  amount: z.number().positive().optional(),
+})
+
+type PayInvoiceFormData = z.infer<typeof payInvoiceFormSchema>
+
 function InvoiceList({ cardId }: { cardId: string }) {
   const { data, isLoading } = useCreditCardInvoices(cardId)
   const payInvoice = usePayInvoice()
@@ -186,17 +197,32 @@ function InvoiceList({ cardId }: { cardId: string }) {
   const { toast } = useToast()
 
   const [payDialog, setPayDialog] = useState<CreditCardInvoice | null>(null)
-  const [accountId, setAccountId] = useState('')
-  const [amount, setAmount] = useState('')
 
-  async function handlePay() {
-    if (!payDialog || !accountId) return
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<PayInvoiceFormData>({
+    resolver: zodResolver(payInvoiceFormSchema),
+    defaultValues: { accountId: '', amount: undefined },
+  })
+
+  useEffect(() => {
+    if (payDialog) {
+      reset({ accountId: '', amount: undefined })
+    }
+  }, [payDialog, reset])
+
+  async function onPayConfirm(data: PayInvoiceFormData) {
+    if (!payDialog) return
     try {
       await payInvoice.mutateAsync({
         cardId,
         invoiceId: payDialog.id,
-        accountId,
-        amount: amount ? parseFloat(amount) : undefined,
+        accountId: data.accountId,
+        amount: data.amount !== undefined ? normalizeReaisForApi(data.amount) : undefined,
       })
       toast('Fatura paga!', 'success')
       setPayDialog(null)
@@ -249,37 +275,60 @@ function InvoiceList({ cardId }: { cardId: string }) {
         className="max-w-sm"
         preventClose={payInvoice.isPending}
       >
-        <DialogHeader title="Pagar Fatura" onClose={() => setPayDialog(null)} />
-        <DialogBody className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Total da fatura: <strong className="font-mono tabular-nums text-foreground">{formatCurrency(payDialog?.totalAmount ?? 0)}</strong>
-          </p>
-          <div className="space-y-1.5">
-            <Label>Conta para débito</Label>
-            <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              <option value="">Selecione uma conta</option>
-              {accounts?.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Valor (deixe em branco para total)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              placeholder={String(payDialog?.totalAmount ?? '')}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setPayDialog(null)}>Cancelar</Button>
-          <Button onClick={handlePay} isLoading={payInvoice.isPending} disabled={!accountId}>
-            Confirmar Pagamento
-          </Button>
-        </DialogFooter>
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onPayConfirm)}>
+          <DialogHeader title="Pagar Fatura" onClose={() => setPayDialog(null)} />
+          <DialogBody className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Total da fatura:{' '}
+              <strong className="font-mono tabular-nums text-foreground">
+                {formatCurrency(payDialog?.totalAmount ?? 0)}
+              </strong>
+            </p>
+            <div className="space-y-1.5">
+              <Label>Conta para débito</Label>
+              <Select error={errors.accountId?.message} {...register('accountId')}>
+                <option value="">Selecione uma conta</option>
+                {accounts?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Valor</Label>
+              <Controller
+                name="amount"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder={
+                      payDialog ? formatBrlMoneyInputFromReais(payDialog.totalAmount) : '0,00'
+                    }
+                    error={errors.amount?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="pay-invoice-amount-hint"
+                  />
+                )}
+              />
+              <p id="pay-invoice-amount-hint" className="text-xs text-muted-foreground">
+                Deixe em branco para pagar o total da fatura.
+              </p>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPayDialog(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" isLoading={payInvoice.isPending || isSubmitting}>
+              Confirmar pagamento
+            </Button>
+          </DialogFooter>
+        </form>
       </Dialog>
     </div>
   )

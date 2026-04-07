@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -9,10 +9,14 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { useCreateCreditCard, useUpdateCreditCard, type CreditCard } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
-  limit: z.coerce.number().positive('Limite obrigatório'),
+  limit: z
+    .number({ invalid_type_error: 'Informe o limite' })
+    .positive('Limite obrigatório'),
   closingDay: z.coerce.number().int().min(1).max(31),
   dueDay: z.coerce.number().int().min(1).max(31),
   color: z.string().optional(),
@@ -33,6 +37,7 @@ export function CreditCardForm({ open, onClose, card }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -46,10 +51,14 @@ export function CreditCardForm({ open, onClose, card }: Props) {
   async function onSubmit(data: FormData) {
     try {
       if (card) {
-        await update.mutateAsync({ id: card.id, ...data })
+        await update.mutateAsync({
+          id: card.id,
+          ...data,
+          limit: normalizeReaisForApi(data.limit),
+        })
         toast('Cartão atualizado!', 'success')
       } else {
-        await create.mutateAsync(data)
+        await create.mutateAsync({ ...data, limit: normalizeReaisForApi(data.limit) })
         toast('Cartão criado!', 'success')
       }
       reset()
@@ -69,8 +78,26 @@ export function CreditCardForm({ open, onClose, card }: Props) {
             <Input placeholder="Ex: Nubank, Itaú Platinum..." error={errors.name?.message} {...register('name')} />
           </div>
           <div className="space-y-1.5">
-            <Label>Limite (R$)</Label>
-            <Input type="number" step="0.01" placeholder="5000,00" error={errors.limit?.message} {...register('limit')} />
+            <Label>Limite</Label>
+            <Controller
+              name="limit"
+              control={control}
+              render={({ field }) => (
+                <MoneyBrlInput
+                  placeholder="5.000,00"
+                  error={errors.limit?.message}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                  aria-describedby="card-limit-hint"
+                />
+              )}
+            />
+            <p id="card-limit-hint" className="sr-only">
+              Valor em reais (BRL), duas casas decimais.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">

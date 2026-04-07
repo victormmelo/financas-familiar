@@ -37,6 +37,23 @@ export interface TransactionListResponse {
   totalPages: number
 }
 
+/** Formato bruto da API (`apps/api` — transactions.service listTransactions). */
+interface TransactionListApiBody {
+  data: Transaction[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    pages: number
+  }
+}
+
+function normalizeAmount(amount: Transaction['amount']): number {
+  if (typeof amount === 'number' && !Number.isNaN(amount)) return amount
+  const n = Number(amount)
+  return Number.isFinite(n) ? n : 0
+}
+
 export function useTransactions(filters: TransactionFilters = {}) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([k, v]) => {
@@ -46,7 +63,16 @@ export function useTransactions(filters: TransactionFilters = {}) {
 
   return useQuery({
     queryKey: ['transactions', filters],
-    queryFn: () => api.get<TransactionListResponse>(`/transactions${qs ? `?${qs}` : ''}`),
+    queryFn: async () => {
+      const raw = await api.get<TransactionListApiBody>(`/transactions${qs ? `?${qs}` : ''}`)
+      return {
+        data: raw.data.map((t) => ({ ...t, amount: normalizeAmount(t.amount) })),
+        total: raw.pagination.total,
+        page: raw.pagination.page,
+        limit: raw.pagination.limit,
+        totalPages: raw.pagination.pages,
+      } satisfies TransactionListResponse
+    },
   })
 }
 

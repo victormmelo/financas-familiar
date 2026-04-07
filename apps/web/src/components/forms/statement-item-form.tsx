@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -11,12 +11,16 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/
 import { useAccounts } from '@/hooks/use-accounts'
 import { useCreateStatementItem } from '@/hooks/use-reconciliation'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   accountId: z.string().min(1, 'Selecione uma conta'),
   type: z.enum(['INCOME', 'EXPENSE']),
-  amount: z.coerce.number().positive('Valor deve ser positivo'),
+  amount: z
+    .number({ invalid_type_error: 'Informe o valor' })
+    .positive('Valor deve ser positivo'),
   description: z.string().min(1, 'Descrição obrigatória'),
   date: z.string().min(1, 'Data obrigatória'),
 })
@@ -36,6 +40,7 @@ export function StatementItemForm({ open, onClose, defaultAccountId }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -49,7 +54,9 @@ export function StatementItemForm({ open, onClose, defaultAccountId }: Props) {
   })
 
   function onSubmit(data: FormData) {
-    create.mutate(data, {
+    create.mutate(
+      { ...data, amount: normalizeReaisForApi(data.amount) },
+      {
       onSuccess: () => {
         toast('Item adicionado ao extrato', 'success')
         reset()
@@ -91,18 +98,27 @@ export function StatementItemForm({ open, onClose, defaultAccountId }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="si-amount">Valor (R$)</Label>
-              <Input
-                id="si-amount"
-                type="number"
-                step="0.01"
-                min="0.01"
-                placeholder="0,00"
-                {...register('amount')}
+              <Label htmlFor="si-amount">Valor</Label>
+              <Controller
+                name="amount"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    id="si-amount"
+                    placeholder="0,00"
+                    error={errors.amount?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="si-amount-hint"
+                  />
+                )}
               />
-              {errors.amount && (
-                <p className="text-xs text-destructive">{errors.amount.message}</p>
-              )}
+              <p id="si-amount-hint" className="sr-only">
+                Valor em reais (BRL), duas casas decimais.
+              </p>
             </div>
 
             <div className="space-y-1.5">

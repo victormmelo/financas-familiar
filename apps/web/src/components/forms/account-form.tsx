@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -10,11 +10,13 @@ import { Select } from '@/components/ui/select'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { useCreateAccount, useUpdateAccount, type Account } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
   type: z.enum(['CHECKING', 'SAVINGS', 'JOINT', 'INVESTMENT', 'CASH']),
-  initialBalance: z.coerce.number().default(0),
+  initialBalance: z.number({ invalid_type_error: 'Informe o saldo inicial' }).min(0).default(0),
   color: z.string().optional(),
 })
 
@@ -33,6 +35,7 @@ export function AccountForm({ open, onClose, account }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -49,7 +52,10 @@ export function AccountForm({ open, onClose, account }: Props) {
         await update.mutateAsync({ id: account.id, name: data.name, type: data.type, color: data.color })
         toast('Conta atualizada!', 'success')
       } else {
-        await create.mutateAsync(data)
+        await create.mutateAsync({
+          ...data,
+          initialBalance: normalizeReaisForApi(data.initialBalance),
+        })
         toast('Conta criada!', 'success')
       }
       reset()
@@ -80,8 +86,26 @@ export function AccountForm({ open, onClose, account }: Props) {
           </div>
           {!account && (
             <div className="space-y-1.5">
-              <Label>Saldo Inicial (R$)</Label>
-              <Input type="number" step="0.01" placeholder="0,00" error={errors.initialBalance?.message} {...register('initialBalance')} />
+              <Label>Saldo inicial</Label>
+              <Controller
+                name="initialBalance"
+                control={control}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder="0,00"
+                    error={errors.initialBalance?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    aria-describedby="account-initial-balance-hint"
+                  />
+                )}
+              />
+              <p id="account-initial-balance-hint" className="sr-only">
+                Valor em reais (BRL), duas casas decimais.
+              </p>
             </div>
           )}
           <div className="space-y-1.5">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -11,13 +11,17 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/
 import { useCreateTransfer } from '@/hooks/use-transfers'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z
   .object({
     fromAccountId: z.string().min(1, 'Selecione a conta de origem'),
     toAccountId: z.string().min(1, 'Selecione a conta de destino'),
-    amount: z.coerce.number().positive('Valor deve ser positivo'),
+    amount: z
+      .number({ invalid_type_error: 'Informe o valor' })
+      .positive('Valor deve ser positivo'),
     description: z.string().optional(),
     date: z.string().min(1, 'Data obrigatória'),
   })
@@ -40,6 +44,7 @@ export function TransferForm({ open, onClose }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -50,7 +55,7 @@ export function TransferForm({ open, onClose }: Props) {
 
   async function onSubmit(data: FormData) {
     try {
-      await create.mutateAsync(data)
+      await create.mutateAsync({ ...data, amount: normalizeReaisForApi(data.amount) })
       toast('Transferência realizada!', 'success')
       reset()
       onClose()
@@ -83,8 +88,26 @@ export function TransferForm({ open, onClose }: Props) {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Valor (R$)</Label>
-            <Input type="number" step="0.01" placeholder="0,00" error={errors.amount?.message} {...register('amount')} />
+            <Label>Valor</Label>
+            <Controller
+              name="amount"
+              control={control}
+              render={({ field }) => (
+                <MoneyBrlInput
+                  placeholder="0,00"
+                  error={errors.amount?.message}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                  aria-describedby="transfer-amount-hint"
+                />
+              )}
+            />
+            <p id="transfer-amount-hint" className="sr-only">
+              Valor em reais (BRL), duas casas decimais.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Data</Label>

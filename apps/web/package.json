@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@financas/shared-types": "0.0.1",
     "@radix-ui/react-dialog": "^1.1.6",
     "@hookform/resolvers": "^3.9.1",
     "@sentry/nextjs": "^10.47.0",

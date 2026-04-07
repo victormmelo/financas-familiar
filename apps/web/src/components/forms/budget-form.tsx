@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -11,13 +11,17 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/
 import { useCreateBudget, useUpdateBudget, type Budget } from '@/hooks/use-budgets'
 import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
+import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { currentMonth } from '@/lib/utils'
+import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
   categoryId: z.string().min(1, 'Selecione uma categoria'),
   referenceMonth: z.coerce.number().int().min(1).max(12),
   referenceYear: z.coerce.number().int().min(2000),
-  limitAmount: z.coerce.number().positive('Limite obrigatório'),
+  limitAmount: z
+    .number({ invalid_type_error: 'Informe o limite' })
+    .positive('Limite obrigatório'),
 })
 
 type FormData = z.infer<typeof schema>
@@ -37,6 +41,7 @@ export function BudgetForm({ open, onClose, budget }: Props) {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
@@ -50,10 +55,16 @@ export function BudgetForm({ open, onClose, budget }: Props) {
   async function onSubmit(data: FormData) {
     try {
       if (budget) {
-        await update.mutateAsync({ id: budget.id, limitAmount: data.limitAmount })
+        await update.mutateAsync({
+          id: budget.id,
+          limitAmount: normalizeReaisForApi(data.limitAmount),
+        })
         toast('Orçamento atualizado!', 'success')
       } else {
-        await create.mutateAsync(data)
+        await create.mutateAsync({
+          ...data,
+          limitAmount: normalizeReaisForApi(data.limitAmount),
+        })
         toast('Orçamento criado!', 'success')
       }
       reset()
@@ -90,8 +101,26 @@ export function BudgetForm({ open, onClose, budget }: Props) {
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Limite (R$)</Label>
-            <Input type="number" step="0.01" placeholder="500,00" error={errors.limitAmount?.message} {...register('limitAmount')} />
+            <Label>Limite</Label>
+            <Controller
+              name="limitAmount"
+              control={control}
+              render={({ field }) => (
+                <MoneyBrlInput
+                  placeholder="500,00"
+                  error={errors.limitAmount?.message}
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                  aria-describedby="budget-limit-hint"
+                />
+              )}
+            />
+            <p id="budget-limit-hint" className="sr-only">
+              Valor em reais (BRL), duas casas decimais.
+            </p>
           </div>
         </DialogBody>
         <DialogFooter>
