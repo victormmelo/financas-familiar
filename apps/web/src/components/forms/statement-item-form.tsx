@@ -62,8 +62,8 @@ export function StatementItemForm({ open, onClose, defaultAccountId }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose}>
-      <form onSubmit={handleSubmit(onSubmit)}>
+    <Dialog open={open} onClose={onClose} preventClose={isSubmitting}>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogHeader title="Adicionar Item Manual" onClose={onClose} />
         <DialogBody>
           <div className="space-y-4">

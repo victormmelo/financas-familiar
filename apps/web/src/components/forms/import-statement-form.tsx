@@ -59,8 +59,8 @@ export function ImportStatementForm({ open, onClose }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose}>
-      <form onSubmit={handleSubmit}>
+    <Dialog open={open} onClose={onClose} preventClose={importStatement.isPending}>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
         <DialogHeader title="Importar Extrato" onClose={onClose} />
         <DialogBody>
           <div className="space-y-4">

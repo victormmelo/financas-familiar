@@ -60,9 +60,9 @@ export function CreditCardForm({ open, onClose, card }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} className="max-w-md">
+    <Dialog open={open} onClose={onClose} className="max-w-md" preventClose={isSubmitting}>
       <DialogHeader title={card ? 'Editar Cartão' : 'Novo Cartão'} onClose={onClose} />
-      <form onSubmit={handleSubmit(onSubmit)}>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-4">
           <div className="space-y-1.5">
             <Label>Nome</Label>

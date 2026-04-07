@@ -232,7 +232,7 @@ export default function TransacoesPage() {
                         <StatusBadge status={t.status} />
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <span className={`font-mono font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        <span className={`font-mono font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
                         </span>
                       </td>

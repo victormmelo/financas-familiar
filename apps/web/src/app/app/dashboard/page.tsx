@@ -1,21 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { TrendingUp, TrendingDown, Wallet, CreditCard, Target, PieChart as PieIcon, Receipt } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +13,14 @@ import { useGoals } from '@/hooks/use-goals'
 import { formatCurrency, currentMonth, getMonthName } from '@/lib/utils'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
+
+/** Alinhado a globals.css — card / border / foreground */
+const chartTooltipStyle = {
+  backgroundColor: 'hsl(120, 13%, 9%)',
+  border: '1px solid hsl(120, 10%, 25%)',
+  borderRadius: '6px',
+} as const
+const chartTooltipLabelColor = 'hsl(120, 27%, 92%)'
 
 export default function DashboardPage() {
   const { month, year } = currentMonth()
@@ -83,28 +77,28 @@ export default function DashboardPage() {
           value={formatCurrency(totalBalance)}
           icon={<Wallet className="h-5 w-5 text-primary" />}
           bg="bg-primary/10"
-          valueClass={totalBalance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}
+          valueClass={totalBalance >= 0 ? 'text-foreground' : 'text-rose-400'}
         />
         <SummaryCard
           title={`Receitas — ${getMonthName(month)}`}
           value={formatCurrency(monthIncome)}
-          icon={<TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />}
-          bg="bg-emerald-50 dark:bg-emerald-900/20"
-          valueClass="text-emerald-600 dark:text-emerald-400"
+          icon={<TrendingUp className="h-5 w-5 text-emerald-400" />}
+          bg="bg-emerald-950/30"
+          valueClass="text-emerald-400"
         />
         <SummaryCard
           title={`Despesas — ${getMonthName(month)}`}
           value={formatCurrency(monthExpense)}
-          icon={<TrendingDown className="h-5 w-5 text-rose-600 dark:text-rose-400" />}
-          bg="bg-rose-50 dark:bg-rose-900/20"
-          valueClass="text-rose-600 dark:text-rose-400"
+          icon={<TrendingDown className="h-5 w-5 text-rose-400" />}
+          bg="bg-rose-950/30"
+          valueClass="text-rose-400"
         />
         <SummaryCard
           title="Saldo do Mês"
           value={formatCurrency(monthBalance)}
           icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
           bg="bg-muted"
-          valueClass={monthBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}
+          valueClass={monthBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}
         />
       </div>
 
@@ -133,7 +127,7 @@ export default function DashboardPage() {
                         <p className="text-xs text-muted-foreground">{account.type}</p>
                       </div>
                     </div>
-                    <span className={`font-mono text-sm font-semibold tabular-nums ${account.balance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
+                    <span className={`font-mono text-sm font-semibold tabular-nums ${account.balance >= 0 ? 'text-foreground' : 'text-rose-400'}`}>
                       {formatCurrency(account.balance)}
                     </span>
                   </div>
@@ -164,12 +158,46 @@ export default function DashboardPage() {
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
-                  <Pie data={categoryData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                  <Pie
+                    data={categoryData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    labelLine={false}
+                    label={({ name, percent, cx, cy, midAngle, innerRadius, outerRadius }) => {
+                      const ir = innerRadius ?? 0
+                      const or = outerRadius ?? 0
+                      const radius = ir + (or - ir) * 0.65
+                      const angle = (((midAngle ?? 0) * Math.PI) / 180)
+                      const x = (cx ?? 0) + radius * Math.cos(-angle)
+                      const y = (cy ?? 0) + radius * Math.sin(-angle)
+                      const pct = ((percent ?? 0) * 100).toFixed(0)
+                      return (
+                        <text
+                          x={x}
+                          y={y}
+                          fill={chartTooltipLabelColor}
+                          textAnchor={x > (cx ?? 0) ? 'start' : 'end'}
+                          dominantBaseline="central"
+                          fontSize={11}
+                        >
+                          {`${name} ${pct}%`}
+                        </text>
+                      )
+                    }}
+                  >
                     {categoryData.map((_, i) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip
+                    formatter={(v: number) => formatCurrency(v)}
+                    contentStyle={chartTooltipStyle}
+                    labelStyle={{ color: chartTooltipLabelColor }}
+                    itemStyle={{ color: chartTooltipLabelColor }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -195,7 +223,7 @@ export default function DashboardPage() {
                   <div key={b.id}>
                     <div className="flex justify-between text-sm mb-1">
                       <span className="font-medium text-foreground">{b.category?.name ?? '—'}</span>
-                      <span className={b.isOverBudget ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-muted-foreground'}>
+                      <span className={b.isOverBudget ? 'text-rose-400 font-semibold' : 'text-muted-foreground'}>
                         {formatCurrency(b.spentAmount)} / {formatCurrency(b.limitAmount)}
                       </span>
                     </div>
@@ -279,7 +307,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-muted-foreground">{t.account?.name} · {t.date}</p>
                     </div>
                   </div>
-                  <span className={`font-mono text-sm font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                  <span className={`font-mono text-sm font-semibold tabular-nums ${t.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {t.type === 'INCOME' ? '+' : '-'}{formatCurrency(t.amount)}
                   </span>
                 </div>

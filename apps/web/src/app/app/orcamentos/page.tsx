@@ -81,7 +81,7 @@ export default function OrcamentosPage() {
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground">Total Gasto</p>
-              <p className={`font-mono text-xl font-semibold tabular-nums ${totalSpent > total ? 'text-rose-600 dark:text-rose-400' : 'text-foreground'}`}>
+              <p className={`font-mono text-xl font-semibold tabular-nums ${totalSpent > total ? 'text-rose-400' : 'text-foreground'}`}>
                 {formatCurrency(totalSpent)}
               </p>
             </CardContent>
@@ -89,7 +89,7 @@ export default function OrcamentosPage() {
           <Card>
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground">Disponível</p>
-              <p className={`font-mono text-xl font-semibold tabular-nums ${total - totalSpent < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              <p className={`font-mono text-xl font-semibold tabular-nums ${total - totalSpent < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                 {formatCurrency(total - totalSpent)}
               </p>
             </CardContent>

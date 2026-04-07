@@ -243,7 +243,12 @@ function InvoiceList({ cardId }: { cardId: string }) {
         </div>
       )}
 
-      <Dialog open={!!payDialog} onClose={() => setPayDialog(null)} className="max-w-sm">
+      <Dialog
+        open={!!payDialog}
+        onClose={() => setPayDialog(null)}
+        className="max-w-sm"
+        preventClose={payInvoice.isPending}
+      >
         <DialogHeader title="Pagar Fatura" onClose={() => setPayDialog(null)} />
         <DialogBody className="space-y-4">
           <p className="text-sm text-muted-foreground">

@@ -66,9 +66,9 @@ export function BudgetForm({ open, onClose, budget }: Props) {
   const expenseCategories = categories?.filter((c) => c.type === 'EXPENSE' || c.type === 'BOTH')
 
   return (
-    <Dialog open={open} onClose={onClose} className="max-w-md">
+    <Dialog open={open} onClose={onClose} className="max-w-md" preventClose={isSubmitting}>
       <DialogHeader title={budget ? 'Editar Orçamento' : 'Novo Orçamento'} onClose={onClose} />
-      <form onSubmit={handleSubmit(onSubmit)}>
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-4">
           <div className="space-y-1.5">
             <Label>Categoria</Label>

@@ -86,9 +86,9 @@ export default function LoginPage() {
           <Button type="submit" className="w-full" isLoading={isSubmitting}>
             Entrar
           </Button>
-          <p className="text-sm text-gray-500 text-center">
+          <p className="text-sm text-muted-foreground text-center">
             Não tem uma conta?{' '}
-            <Link href="/auth/cadastro" className="text-blue-600 hover:underline font-medium">
+            <Link href="/auth/cadastro" className="text-[#7CFC98] hover:underline font-medium">
               Criar família
             </Link>
           </p>

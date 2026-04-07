@@ -29,20 +29,20 @@ import type { StatementItem, StatementItemStatus } from '@financas/shared-types'
 // ─── Status badge config ──────────────────────────────────────────────────────
 
 const statusConfig: Record<StatementItemStatus, { label: string; className: string }> = {
-  PENDING: { label: 'Pendente', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  MATCHED: { label: 'Correspondido', className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  REJECTED: { label: 'Rejeitado', className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' },
+  PENDING: { label: 'Pendente', className: 'bg-amber-950/40 text-amber-400' },
+  MATCHED: { label: 'Correspondido', className: 'bg-emerald-950/40 text-emerald-400' },
+  REJECTED: { label: 'Rejeitado', className: 'bg-rose-950/40 text-rose-400' },
   IGNORED: { label: 'Ignorado', className: 'bg-muted text-muted-foreground' },
-  CONVERTED: { label: 'Convertido', className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  CONVERTED: { label: 'Convertido', className: 'bg-sky-950/40 text-sky-400' },
 }
 
 function ScoreBadge({ score }: { score: number | null }) {
   if (score === null) return <span className="text-xs text-muted-foreground">—</span>
   const cls =
     score >= 85
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+      ? 'bg-emerald-950/40 text-emerald-400'
       : score >= 70
-        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+        ? 'bg-amber-950/40 text-amber-400'
         : 'bg-muted text-muted-foreground'
   const label = score >= 85 ? 'Alta' : 'Média'
   return (
@@ -339,9 +339,7 @@ function ImportTab() {
                             <span
                               className={cn(
                                 'text-xs font-medium',
-                                item.type === 'INCOME'
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-600 dark:text-rose-400',
+                                item.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400',
                               )}
                             >
                               {item.type === 'INCOME' ? 'Crédito' : 'Débito'}
@@ -350,9 +348,7 @@ function ImportTab() {
                           <td className="px-4 py-3 text-right font-mono tabular-nums">
                             <span
                               className={
-                                item.type === 'INCOME'
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-600 dark:text-rose-400'
+                                item.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'
                               }
                             >
                               {item.type === 'INCOME' ? '+' : '-'} {formatCurrency(item.amount)}

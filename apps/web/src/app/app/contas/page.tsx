@@ -53,7 +53,7 @@ export default function ContasPage() {
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
           <span className="text-sm text-muted-foreground">Saldo total das contas ativas</span>
-          <span className={`font-mono text-3xl font-semibold tabular-nums ${totalBalance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
+          <span className={`font-mono text-3xl font-semibold tabular-nums ${totalBalance >= 0 ? 'text-foreground' : 'text-rose-400'}`}>
             {formatCurrency(totalBalance)}
           </span>
         </div>
@@ -182,7 +182,7 @@ function AccountCard({
           </div>
           {!account.isActive && <Badge variant="secondary">Inativa</Badge>}
         </div>
-        <p className={`font-mono text-2xl font-semibold tabular-nums mb-4 ${account.balance >= 0 ? 'text-foreground' : 'text-rose-600 dark:text-rose-400'}`}>
+        <p className={`font-mono text-2xl font-semibold tabular-nums mb-4 ${account.balance >= 0 ? 'text-foreground' : 'text-rose-400'}`}>
           {formatCurrency(account.balance)}
         </p>
         <div className="flex items-center gap-1 justify-end border-t border-border pt-3">

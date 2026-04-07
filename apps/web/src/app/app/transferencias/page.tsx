@@ -54,8 +54,8 @@ export default function TransferenciasPage() {
               {transfers.map((t) => (
                 <div key={t.id} className="flex items-center justify-between px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-sky-100 dark:bg-sky-900/30 flex items-center justify-center shrink-0">
-                      <ArrowRight className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                    <div className="h-9 w-9 rounded-full bg-sky-950/40 flex items-center justify-center shrink-0">
+                      <ArrowRight className="h-4 w-4 text-sky-400" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -68,7 +68,7 @@ export default function TransferenciasPage() {
                       </p>
                     </div>
                   </div>
-                  <span className="font-mono text-sm font-semibold tabular-nums text-sky-600 dark:text-sky-400">
+                  <span className="font-mono text-sm font-semibold tabular-nums text-sky-400">
                     ↔ {formatCurrency(t.amount)}
                   </span>
                 </div>

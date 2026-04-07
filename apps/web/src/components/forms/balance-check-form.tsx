@@ -128,9 +128,7 @@ export function BalanceCheckForm({ onViewPendingItems }: Props) {
                 <span
                   className={cn(
                     'font-mono text-lg font-semibold tabular-nums',
-                    summary.isBalanced
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-rose-600 dark:text-rose-400',
+                    summary.isBalanced ? 'text-emerald-400' : 'text-rose-400',
                   )}
                 >
                   {summary.difference >= 0 ? '+' : ''}
@@ -140,10 +138,10 @@ export function BalanceCheckForm({ onViewPendingItems }: Props) {
             </div>
 
             {summary.pendingItemsCount > 0 && (
-              <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+              <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-800/50 bg-amber-950/30 p-3">
                 <div className="flex items-center gap-2">
-                  <Receipt className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-                  <span className="text-sm text-amber-800 dark:text-amber-400">
+                  <Receipt className="h-4 w-4 text-amber-400" />
+                  <span className="text-sm text-amber-200">
                     {summary.pendingItemsCount} ite
                     {summary.pendingItemsCount !== 1 ? 'ns pendentes' : 'm pendente'} (
                     {formatCurrency(summary.pendingItemsAmount)})

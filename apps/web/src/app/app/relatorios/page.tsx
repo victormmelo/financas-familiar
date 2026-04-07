@@ -125,7 +125,12 @@ export default function RelatoriosPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={showForm} onClose={() => setShowForm(false)} className="max-w-md">
+      <Dialog
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        className="max-w-md"
+        preventClose={createReport.isPending}
+      >
         <DialogHeader title="Gerar Relatório" onClose={() => setShowForm(false)} />
         <DialogBody className="space-y-4">
           <div className="space-y-1.5">

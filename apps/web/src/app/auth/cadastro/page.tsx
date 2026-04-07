@@ -108,9 +108,9 @@ export default function CadastroPage() {
           <Button type="submit" className="w-full" isLoading={isSubmitting}>
             Criar Família
           </Button>
-          <p className="text-sm text-gray-500 text-center">
+          <p className="text-sm text-muted-foreground text-center">
             Já tem uma conta?{' '}
-            <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+            <Link href="/auth/login" className="text-[#7CFC98] hover:underline font-medium">
               Entrar
             </Link>
           </p>
