@@ -23,6 +23,8 @@ import {
   listAccounts,
   getAccount,
   calculateBalance,
+  calculateBalanceAsOf,
+  endOfMonthInclusiveUtc,
   createAccount,
   updateAccount,
   deleteAccount,
@@ -82,6 +84,30 @@ describe('calculateBalance', () => {
   })
 })
 
+describe('calculateBalanceAsOf', () => {
+  it('deve considerar só transações com data <= fim do mês', async () => {
+    vi.mocked(prisma.account.findUniqueOrThrow).mockResolvedValue(mockAccount)
+    const asOf = endOfMonthInclusiveUtc(2026, 4)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([
+      { type: 'INCOME', _sum: { amount: new Decimal(100) } },
+    ] as never)
+
+    const balance = await calculateBalanceAsOf('acc-1', asOf)
+
+    expect(balance).toBe(1100)
+    expect(prisma.transaction.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountId: 'acc-1',
+          status: 'CONFIRMED',
+          creditCardId: null,
+          date: { lte: asOf },
+        }),
+      }),
+    )
+  })
+})
+
 describe('listAccounts', () => {
   it('deve retornar contas com saldo calculado', async () => {
     vi.mocked(prisma.account.findMany).mockResolvedValue([mockAccount])
@@ -96,6 +122,28 @@ describe('listAccounts', () => {
       where: { familyId: 'family-1', isActive: true },
       orderBy: { createdAt: 'asc' },
     })
+  })
+
+  it('com asOfYear/asOfMonth omite conta criada após o fim do mês e usa saldo histórico', async () => {
+    const oldAccount = {
+      ...mockAccount,
+      id: 'acc-old',
+      createdAt: new Date(Date.UTC(2026, 0, 1, 12, 0, 0)),
+    }
+    const newAccount = {
+      ...mockAccount,
+      id: 'acc-new',
+      createdAt: new Date(Date.UTC(2026, 5, 1, 12, 0, 0)),
+    }
+    vi.mocked(prisma.account.findMany).mockResolvedValue([oldAccount, newAccount])
+    vi.mocked(prisma.account.findUniqueOrThrow).mockResolvedValue(oldAccount)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([])
+
+    const accounts = await listAccounts('family-1', { asOfYear: 2026, asOfMonth: 4 })
+
+    expect(accounts).toHaveLength(1)
+    expect(accounts[0].id).toBe('acc-old')
+    expect(accounts[0].balance).toBe(1000)
   })
 })
 

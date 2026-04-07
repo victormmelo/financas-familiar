@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { createAccountSchema, updateAccountSchema } from './accounts.schema.js'
+import { createAccountSchema, updateAccountSchema, listAccountsQuerySchema } from './accounts.schema.js'
 import * as accountsService from './accounts.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
 
@@ -9,7 +9,8 @@ const accountsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /accounts
   fastify.get('/', async (request) => {
     const user = request.user as TokenPayload
-    return accountsService.listAccounts(user.familyId)
+    const query = listAccountsQuerySchema.parse(request.query)
+    return accountsService.listAccounts(user.familyId, query)
   })
 
   // GET /accounts/:id

@@ -67,3 +67,56 @@ export function getCategoryTypeLabel(type: string): string {
 export function getMonthName(month: number): string {
   return new Date(2000, month - 1).toLocaleString('pt-BR', { month: 'long' })
 }
+
+/** Rótulo legível: "abril de 2026". */
+export function formatMonthYearLabel(year: number, month1to12: number): string {
+  return `${getMonthName(month1to12)} de ${year}`
+}
+
+export function shiftCalendarMonth(
+  year: number,
+  month1to12: number,
+  delta: number,
+): { year: number; month: number } {
+  const d = new Date(year, month1to12 - 1 + delta, 1)
+  return { year: d.getFullYear(), month: d.getMonth() + 1 }
+}
+
+export function compareYearMonth(
+  a: { year: number; month: number },
+  b: { year: number; month: number },
+): number {
+  if (a.year !== b.year) return a.year - b.year
+  return a.month - b.month
+}
+
+/** Impede selecionar mês após `max` (tipicamente mês atual). */
+export function clampYearMonthNotAfter(
+  year: number,
+  month1to12: number,
+  max: { year: number; month: number },
+): { year: number; month: number } {
+  if (compareYearMonth({ year, month: month1to12 }, max) > 0) return max
+  return { year, month: month1to12 }
+}
+
+/** Query `ano` / `mes` do dashboard (?ano=2026&mes=4). */
+export function parseDashboardMonthParams(
+  ano: string | null | undefined,
+  mes: string | null | undefined,
+): { year: number; month: number } | null {
+  if (ano == null || mes == null || ano === '' || mes === '') return null
+  const year = Number.parseInt(ano, 10)
+  const month = Number.parseInt(mes, 10)
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    month < 1 ||
+    month > 12 ||
+    year < 2000 ||
+    year > 2100
+  ) {
+    return null
+  }
+  return { year, month }
+}

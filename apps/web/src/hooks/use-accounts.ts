@@ -13,10 +13,35 @@ export interface Account {
   createdAt: string
 }
 
-export function useAccounts() {
+/** Quando ambos definidos, saldo até o fim desse mês (GET /accounts?asOfYear&asOfMonth). */
+export interface UseAccountsParams {
+  asOfYear?: number
+  asOfMonth?: number
+}
+
+function normalizeAccount(a: Account): Account {
+  return {
+    ...a,
+    balance: typeof a.balance === 'number' && !Number.isNaN(a.balance) ? a.balance : Number(a.balance) || 0,
+    initialBalance:
+      typeof a.initialBalance === 'number' && !Number.isNaN(a.initialBalance)
+        ? a.initialBalance
+        : Number(a.initialBalance) || 0,
+  }
+}
+
+export function useAccounts(params?: UseAccountsParams) {
+  const hasAsOf = params?.asOfYear !== undefined && params?.asOfMonth !== undefined
+  const qs = hasAsOf
+    ? `?asOfYear=${params!.asOfYear}&asOfMonth=${params!.asOfMonth}`
+    : ''
+
   return useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => api.get<Account[]>('/accounts'),
+    queryKey: ['accounts', hasAsOf ? params!.asOfYear : null, hasAsOf ? params!.asOfMonth : null],
+    queryFn: async () => {
+      const rows = await api.get<Account[]>(`/accounts${qs}`)
+      return rows.map(normalizeAccount)
+    },
   })
 }
 

@@ -18,5 +18,19 @@ export const updateAccountSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+/** Query opcional para saldo até o fim do mês (dashboard histórico). */
+export const listAccountsQuerySchema = z
+  .object({
+    asOfYear: z.coerce.number().int().min(2000).max(2100).optional(),
+    asOfMonth: z.coerce.number().int().min(1).max(12).optional(),
+  })
+  .refine(
+    (q) =>
+      (q.asOfYear === undefined && q.asOfMonth === undefined) ||
+      (q.asOfYear !== undefined && q.asOfMonth !== undefined),
+    { message: 'asOfYear e asOfMonth devem ser enviados juntos' },
+  )
+
 export type CreateAccountInput = z.infer<typeof createAccountSchema>
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>
+export type ListAccountsQueryInput = z.infer<typeof listAccountsQuerySchema>

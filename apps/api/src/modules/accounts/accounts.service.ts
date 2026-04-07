@@ -1,17 +1,48 @@
 import { prisma } from '../../lib/prisma.js'
-import type { CreateAccountInput, UpdateAccountInput } from './accounts.schema.js'
+import type { CreateAccountInput, UpdateAccountInput, ListAccountsQueryInput } from './accounts.schema.js'
 import { Decimal } from '@prisma/client/runtime/library'
 
-export async function listAccounts(familyId: string) {
+/** Último dia (1–31) do mês (month 1–12), calendário UTC. */
+export function lastDayOfMonthUtc(year: number, month1to12: number): number {
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
+}
+
+/** Data (meio-dia UTC) do último dia do mês, inclusiva para `date <=` em @db.Date. */
+export function endOfMonthInclusiveUtc(year: number, month1to12: number): Date {
+  const d = lastDayOfMonthUtc(year, month1to12)
+  return new Date(Date.UTC(year, month1to12 - 1, d, 12, 0, 0, 0))
+}
+
+function dateOnlyUtcIso(d: Date): string {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+export async function listAccounts(familyId: string, query?: ListAccountsQueryInput) {
   const accounts = await prisma.account.findMany({
     where: { familyId, isActive: true },
     orderBy: { createdAt: 'asc' },
   })
 
-  // Calculate current balance for each account
+  const asOfYear = query?.asOfYear
+  const asOfMonth = query?.asOfMonth
+  const useAsOf = asOfYear !== undefined && asOfMonth !== undefined
+  const endOfMonthIso = useAsOf
+    ? `${asOfYear}-${String(asOfMonth).padStart(2, '0')}-${String(lastDayOfMonthUtc(asOfYear, asOfMonth)).padStart(2, '0')}`
+    : null
+  const asOfDate = useAsOf ? endOfMonthInclusiveUtc(asOfYear, asOfMonth) : null
+
+  const filtered = useAsOf
+    ? accounts.filter((a) => dateOnlyUtcIso(a.createdAt) <= endOfMonthIso!)
+    : accounts
+
   const accountsWithBalance = await Promise.all(
-    accounts.map(async (account: (typeof accounts)[number]) => {
-      const balance = await calculateBalance(account.id)
+    filtered.map(async (account: (typeof filtered)[number]) => {
+      const balance = useAsOf
+        ? await calculateBalanceAsOf(account.id, asOfDate!)
+        : await calculateBalance(account.id)
       return { ...account, balance }
     }),
   )
@@ -29,15 +60,17 @@ export async function getAccount(familyId: string, accountId: string) {
   return { ...account, balance }
 }
 
-export async function calculateBalance(accountId: string): Promise<number> {
-  const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
-
+async function sumConfirmedNonCardByType(
+  accountId: string,
+  dateLte?: Date,
+): Promise<{ income: Decimal; expense: Decimal }> {
   const result = await prisma.transaction.groupBy({
     by: ['type'],
     where: {
       accountId,
       status: 'CONFIRMED',
-      creditCardId: null, // credit card transactions don't affect balance directly
+      creditCardId: null,
+      ...(dateLte ? { date: { lte: dateLte } } : {}),
     },
     _sum: { amount: true },
   })
@@ -50,6 +83,18 @@ export async function calculateBalance(accountId: string): Promise<number> {
     if (row.type === 'EXPENSE') expense = row._sum.amount ?? new Decimal(0)
   }
 
+  return { income, expense }
+}
+
+export async function calculateBalanceAsOf(accountId: string, asOfInclusive: Date): Promise<number> {
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
+  const { income, expense } = await sumConfirmedNonCardByType(accountId, asOfInclusive)
+  return account.initialBalance.add(income).sub(expense).toNumber()
+}
+
+export async function calculateBalance(accountId: string): Promise<number> {
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
+  const { income, expense } = await sumConfirmedNonCardByType(accountId)
   return account.initialBalance.add(income).sub(expense).toNumber()
 }
 

@@ -78,7 +78,7 @@ describe('register', () => {
             create: vi.fn().mockResolvedValue({ ...mockUser, passwordHash: 'hashed' }),
           },
         }
-        return fn(txMock as PrismaTransactionClient)
+        return fn(txMock as unknown as PrismaTransactionClient)
       },
     )
 
