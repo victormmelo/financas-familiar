@@ -8,6 +8,7 @@ export interface Category {
   parentId?: string
   icon?: string
   color?: string
+  isActive: boolean
   children?: Category[]
 }
 
@@ -19,6 +20,7 @@ interface CategoryApiNode {
   parentId?: string | null
   icon?: string | null
   color?: string | null
+  isActive: boolean
   subcategories?: CategoryApiNode[]
 }
 
@@ -30,6 +32,7 @@ function normalizeCategory(cat: CategoryApiNode): Category {
     parentId: cat.parentId ?? undefined,
     icon: cat.icon ?? undefined,
     color: cat.color ?? undefined,
+    isActive: cat.isActive,
     children: cat.subcategories?.map(normalizeCategory) ?? [],
   }
 }
@@ -56,7 +59,7 @@ export function useCreateCategory() {
 export function useUpdateCategory() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; type?: string; icon?: string; color?: string }) =>
+    mutationFn: ({ id, ...data }: { id: string; name?: string; type?: string; icon?: string; color?: string; isActive?: boolean }) =>
       api.patch<Category>(`/categories/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   })

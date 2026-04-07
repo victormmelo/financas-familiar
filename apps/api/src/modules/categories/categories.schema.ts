@@ -15,6 +15,7 @@ export const updateCategorySchema = z.object({
   type: categoryTypeEnum.optional(),
   icon: z.string().optional(),
   color: z.string().optional(),
+  isActive: z.boolean().optional(),
 })
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>

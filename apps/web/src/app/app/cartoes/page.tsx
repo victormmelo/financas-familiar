@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, CreditCard } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, CreditCard, Power } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +19,7 @@ import {
   useCreditCards,
   useCreditCardInvoices,
   useDeleteCreditCard,
+  useUpdateCreditCard,
   usePayInvoice,
   type CreditCard as CreditCardType,
   type CreditCardInvoice,
@@ -31,6 +32,7 @@ import { formatBrlMoneyInputFromReais, normalizeReaisForApi } from '@financas/sh
 export default function CartoesPage() {
   const { data: cards, isLoading } = useCreditCards()
   const deleteCard = useDeleteCreditCard()
+  const updateCard = useUpdateCreditCard()
   const { toast } = useToast()
 
   const [showForm, setShowForm] = useState(false)
@@ -48,6 +50,107 @@ export default function CartoesPage() {
     } finally {
       setDeleteId(null)
     }
+  }
+
+  async function toggleActive(card: CreditCardType) {
+    try {
+      await updateCard.mutateAsync({ id: card.id, isActive: !card.isActive })
+      toast(card.isActive ? 'Cartão desativado' : 'Cartão ativado', 'success')
+    } catch {
+      toast('Erro ao atualizar cartão', 'error')
+    }
+  }
+
+  const active = cards?.filter((c) => c.isActive) ?? []
+  const inactive = cards?.filter((c) => !c.isActive) ?? []
+
+  function renderCard(card: CreditCardType) {
+    return (
+      <Card key={card.id} className={card.isActive ? '' : 'opacity-60'}>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div
+                className="h-12 w-20 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow"
+                style={{ backgroundColor: card.color ?? '#6366f1' }}
+              >
+                {card.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-foreground">{card.name}</p>
+                  {!card.isActive && (
+                    <Badge className="rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-[#2A1212] text-[#F08D8D] border border-[#7A2A2A]">
+                      Inativo
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Fecha dia {card.closingDay} · Vence dia {card.dueDay}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Limite</p>
+              <p className="font-mono font-semibold tabular-nums text-foreground">{formatCurrency(card.limit)}</p>
+              {card.currentSpending !== undefined && (
+                <p className="text-xs text-muted-foreground">
+                  Usado: <span className="font-mono tabular-nums">{formatCurrency(card.currentSpending)}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-1 ml-4">
+              <button
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                onClick={() => { setEditingCard(card); setShowForm(true) }}
+                title="Editar"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-amber-600"
+                onClick={() => toggleActive(card)}
+                title={card.isActive ? 'Desativar' : 'Ativar'}
+              >
+                <Power className="h-4 w-4" />
+              </button>
+              <button
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600"
+                onClick={() => setDeleteId(card.id)}
+                title="Excluir"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+              <button
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground"
+                onClick={() => setExpandedCard(expandedCard === card.id ? null : card.id)}
+                title="Ver faturas"
+              >
+                {expandedCard === card.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Limit bar */}
+          {card.isActive && card.currentSpending !== undefined && (
+            <div className="mt-4">
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-sky-500 transition-all"
+                  style={{ width: `${Math.min((card.currentSpending / card.limit) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                <span className="font-mono tabular-nums">{formatCurrency(card.limit - (card.currentSpending ?? 0))}</span> disponível
+              </p>
+            </div>
+          )}
+
+          {/* Invoices */}
+          {expandedCard === card.id && <InvoiceList cardId={card.id} />}
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -80,89 +183,33 @@ export default function CartoesPage() {
       ) : cards?.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-            <div className="rounded-full bg-muted p-4">
-              <CreditCard className="h-6 w-6 text-muted-foreground" />
+            <div className="rounded-sm bg-muted p-4 border border-border">
+              <CreditCard className="h-5 w-5 text-muted-foreground" />
             </div>
             <div>
-              <p className="font-medium">Nenhum cartão cadastrado</p>
-              <p className="text-sm text-muted-foreground">Adicione um cartão para controlar suas faturas</p>
+              <p className="text-sm font-medium text-foreground">Nenhum cartão cadastrado</p>
+              <p className="text-xs text-muted-foreground mt-1">Adicione um cartão para controlar suas faturas</p>
             </div>
-            <Button onClick={() => setShowForm(true)}>
+            <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
               <Plus className="h-4 w-4" /> Adicionar cartão
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="flex flex-col gap-4">
-          {cards?.map((card) => (
-            <Card key={card.id}>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div
-                      className="h-12 w-20 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow"
-                      style={{ backgroundColor: card.color ?? '#6366f1' }}
-                    >
-                      {card.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-foreground">{card.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Fecha dia {card.closingDay} · Vence dia {card.dueDay}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Limite</p>
-                    <p className="font-mono font-semibold tabular-nums text-foreground">{formatCurrency(card.limit)}</p>
-                    {card.currentSpending !== undefined && (
-                      <p className="text-xs text-muted-foreground">
-                        Usado: <span className="font-mono tabular-nums">{formatCurrency(card.currentSpending)}</span>
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 ml-4">
-                    <button
-                      className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                      onClick={() => { setEditingCard(card); setShowForm(true) }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-rose-600"
-                      onClick={() => setDeleteId(card.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                    <button
-                      className="p-1.5 rounded hover:bg-accent text-muted-foreground"
-                      onClick={() => setExpandedCard(expandedCard === card.id ? null : card.id)}
-                    >
-                      {expandedCard === card.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Limit bar */}
-                {card.currentSpending !== undefined && (
-                  <div className="mt-4">
-                    <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-sky-500 transition-all"
-                        style={{ width: `${Math.min((card.currentSpending / card.limit) * 100, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      <span className="font-mono tabular-nums">{formatCurrency(card.limit - (card.currentSpending ?? 0))}</span> disponível
-                    </p>
-                  </div>
-                )}
-
-                {/* Invoices */}
-                {expandedCard === card.id && <InvoiceList cardId={card.id} />}
-              </CardContent>
-            </Card>
-          ))}
+        <div className="flex flex-col gap-6">
+          {active.length > 0 && (
+            <div className="flex flex-col gap-4">
+              {active.map(renderCard)}
+            </div>
+          )}
+          {inactive.length > 0 && (
+            <div className="flex flex-col gap-4">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                Cartões Inativos
+              </h3>
+              {inactive.map(renderCard)}
+            </div>
+          )}
         </div>
       )}
 
