@@ -14,6 +14,16 @@ export interface CreditCard {
   openInvoice?: CreditCardInvoice
 }
 
+export interface InvoiceTransaction {
+  id: string
+  type: 'INCOME' | 'EXPENSE'
+  status: 'DRAFT' | 'CONFIRMED' | 'DELETED'
+  amount: number
+  description: string
+  date: string
+  category?: { id: string; name: string; type: string } | null
+}
+
 export interface CreditCardInvoice {
   id: string
   creditCardId: string
@@ -21,9 +31,11 @@ export interface CreditCardInvoice {
   referenceYear: number
   totalAmount: number
   status: 'OPEN' | 'CLOSED' | 'PAID'
-  dueDate?: string
-  paidAt?: string
-  paidAmount?: number
+  dueDate: string
+  paidAt?: string | null
+  paidFromAccountId?: string | null
+  paidFromAccount?: { id: string; name: string } | null
+  transactions?: InvoiceTransaction[]
 }
 
 export function useCreditCards() {
@@ -37,8 +49,16 @@ export function useCreditCardInvoices(cardId: string, params?: { page?: number; 
   const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
   return useQuery({
     queryKey: ['credit-cards', cardId, 'invoices', params],
-    queryFn: () => api.get<{ data: CreditCardInvoice[]; total: number }>(`/credit-cards/${cardId}/invoices${qs ? `?${qs}` : ''}`),
+    queryFn: () => api.get<{ data: CreditCardInvoice[]; pagination: { total: number; page: number; limit: number; pages: number } }>(`/credit-cards/${cardId}/invoices${qs ? `?${qs}` : ''}`),
     enabled: !!cardId,
+  })
+}
+
+export function useCreditCardInvoice(cardId: string, invoiceId: string) {
+  return useQuery({
+    queryKey: ['credit-cards', cardId, 'invoices', invoiceId],
+    queryFn: () => api.get<CreditCardInvoice>(`/credit-cards/${cardId}/invoices/${invoiceId}`),
+    enabled: !!cardId && !!invoiceId,
   })
 }
 

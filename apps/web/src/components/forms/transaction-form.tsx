@@ -16,9 +16,32 @@ import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
 import { normalizeReaisForApi } from '@financas/shared-types'
 
+// ─── RRULE builder helpers ────────────────────────────────────────────────────
+
+type Frequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+
+const FREQ_LABELS: Record<Frequency, string> = {
+  DAILY: 'Diário',
+  WEEKLY: 'Semanal',
+  MONTHLY: 'Mensal',
+  YEARLY: 'Anual',
+}
+
+/** Constrói uma string RRULE compatível com RFC 5545 sem depender da lib rrule no frontend. */
+function buildRRule(frequency: Frequency, startDate: string): string {
+  // Formata DTSTART como YYYYMMDDTHHMMSSZ
+  const d = new Date(startDate + 'T00:00:00Z')
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const dtstart = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T000000Z`
+  return `DTSTART:${dtstart}\nRRULE:FREQ=${frequency}`
+}
+
+// ─── Schema ───────────────────────────────────────────────────────────────────
+
 const schema = z.object({
   accountId: z.string().min(1, 'Selecione uma conta'),
   categoryId: z.string().optional(),
+  creditCardId: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']),
   amount: z
     .number({ invalid_type_error: 'Informe o valor' })
@@ -26,6 +49,15 @@ const schema = z.object({
   description: z.string().min(1, 'Descrição obrigatória'),
   notes: z.string().optional(),
   date: z.string().min(1, 'Data obrigatória'),
+  // Modo de lançamento: 'simple' | 'recurring' | 'installment'
+  mode: z.enum(['simple', 'recurring', 'installment']).default('simple'),
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']).default('MONTHLY'),
+  installmentCount: z.coerce
+    .number()
+    .int()
+    .min(2, 'Mínimo 2 parcelas')
+    .max(360, 'Máximo 360 parcelas')
+    .optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -61,14 +93,19 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
           description: transaction.description,
           notes: transaction.notes ?? '',
           date: transaction.date,
+          mode: 'simple',
+          frequency: 'MONTHLY',
         }
       : {
           type: 'EXPENSE',
           date: formatDateInput(new Date()),
+          mode: 'simple',
+          frequency: 'MONTHLY',
         },
   })
 
   const selectedType = watch('type')
+  const selectedMode = watch('mode')
 
   const filteredCategories = categories?.filter(
     (c) => c.type === selectedType || c.type === 'BOTH',
@@ -87,13 +124,35 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
         })
         toast('Transação atualizada!', 'success')
       } else {
-        await create.mutateAsync({
-          ...data,
-          amount: normalizeReaisForApi(data.amount),
+        const base = {
+          accountId: data.accountId,
           categoryId: data.categoryId || undefined,
-          source: 'MANUAL',
-        })
-        toast('Transação criada!', 'success')
+          creditCardId: data.creditCardId || undefined,
+          type: data.type,
+          amount: normalizeReaisForApi(data.amount),
+          description: data.description,
+          notes: data.notes || undefined,
+          date: data.date,
+          source: 'MANUAL' as const,
+        }
+
+        if (data.mode === 'recurring') {
+          await create.mutateAsync({
+            ...base,
+            isRecurring: true,
+            rrule: buildRRule(data.frequency, data.date),
+          })
+          toast('Recorrência criada! Rascunhos gerados para os próximos 90 dias.', 'success')
+        } else if (data.mode === 'installment') {
+          await create.mutateAsync({
+            ...base,
+            installmentCount: data.installmentCount,
+          })
+          toast(`${data.installmentCount} parcelas criadas como rascunho!`, 'success')
+        } else {
+          await create.mutateAsync(base)
+          toast('Transação criada!', 'success')
+        }
       }
       reset()
       onClose()
@@ -102,6 +161,8 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
     }
   }
 
+  const isEdit = !!transaction
+
   return (
     <Dialog
       open={open}
@@ -109,9 +170,33 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
       className="w-full max-w-md"
       preventClose={isSubmitting}
     >
-      <DialogHeader title={transaction ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
+      <DialogHeader title={isEdit ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-4">
+
+          {/* Modo de lançamento — somente na criação */}
+          {!isEdit && (
+            <div className="space-y-1.5">
+              <Label>Tipo de lançamento</Label>
+              <div className="grid grid-cols-3 gap-1 rounded-sm border border-border p-1 bg-muted">
+                {(['simple', 'recurring', 'installment'] as const).map((m) => (
+                  <label key={m} className="cursor-pointer">
+                    <input type="radio" value={m} {...register('mode')} className="sr-only" />
+                    <span
+                      className={`block text-center text-xs font-medium py-1.5 rounded-sm transition-colors ${
+                        selectedMode === m
+                          ? 'bg-background text-[#7CFC98] border border-[#285E38]'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {m === 'simple' ? 'Simples' : m === 'recurring' ? 'Recorrente' : 'Parcelado'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
@@ -121,7 +206,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor</Label>
+              <Label>Valor{selectedMode === 'installment' ? ' por parcela' : ''}</Label>
               <Controller
                 name="amount"
                 control={control}
@@ -143,6 +228,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               </p>
             </div>
           </div>
+
           <div className="space-y-1.5">
             <Label>Descrição</Label>
             <Input
@@ -151,6 +237,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               {...register('description')}
             />
           </div>
+
           <div className="space-y-1.5">
             <Label>Conta</Label>
             <Select error={errors.accountId?.message} {...register('accountId')}>
@@ -162,6 +249,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               ))}
             </Select>
           </div>
+
           <div className="space-y-1.5">
             <Label>Categoria</Label>
             <Select {...register('categoryId')}>
@@ -173,10 +261,51 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               ))}
             </Select>
           </div>
+
           <div className="space-y-1.5">
-            <Label>Data</Label>
+            <Label>{selectedMode === 'recurring' ? 'Data inicial' : selectedMode === 'installment' ? 'Data da 1ª parcela' : 'Data'}</Label>
             <Input type="date" error={errors.date?.message} {...register('date')} />
           </div>
+
+          {/* Campos extras: Recorrente */}
+          {!isEdit && selectedMode === 'recurring' && (
+            <div className="rounded-sm border border-[#285E38] bg-[#112417] p-3 space-y-3">
+              <p className="text-xs font-medium text-[#8DDBA4] uppercase tracking-wide">Configuração de recorrência</p>
+              <div className="space-y-1.5">
+                <Label>Frequência</Label>
+                <Select {...register('frequency')}>
+                  {(Object.keys(FREQ_LABELS) as Frequency[]).map((f) => (
+                    <option key={f} value={f}>{FREQ_LABELS[f]}</option>
+                  ))}
+                </Select>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Rascunhos serão gerados automaticamente para os próximos 90 dias e renovados diariamente.
+              </p>
+            </div>
+          )}
+
+          {/* Campos extras: Parcelado */}
+          {!isEdit && selectedMode === 'installment' && (
+            <div className="rounded-sm border border-[#28546A] bg-[#10202A] p-3 space-y-3">
+              <p className="text-xs font-medium text-[#86C3E6] uppercase tracking-wide">Configuração de parcelamento</p>
+              <div className="space-y-1.5">
+                <Label>Número de parcelas</Label>
+                <Input
+                  type="number"
+                  min="2"
+                  max="360"
+                  placeholder="Ex: 12"
+                  error={errors.installmentCount?.message}
+                  {...register('installmentCount')}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Todas as parcelas serão criadas como rascunho com datas mensais consecutivas.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Observações</Label>
             <Input placeholder="Opcional..." {...register('notes')} />
@@ -188,7 +317,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
               Cancelar
             </Button>
             <Button type="submit" className="w-full sm:w-auto" isLoading={isSubmitting}>
-              {transaction ? 'Salvar' : 'Criar'}
+              {isEdit ? 'Salvar' : selectedMode === 'installment' ? 'Criar parcelas' : selectedMode === 'recurring' ? 'Criar recorrência' : 'Criar'}
             </Button>
           </div>
         </DialogFooter>

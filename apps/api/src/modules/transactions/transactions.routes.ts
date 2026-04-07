@@ -19,6 +19,12 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
     return transactionsService.listTransactions(user.familyId, query)
   })
 
+  // GET /transactions/recurring — lista templates recorrentes
+  fastify.get('/recurring', async (request) => {
+    const user = request.user as TokenPayload
+    return transactionsService.listRecurringTemplates(user.familyId)
+  })
+
   // GET /transactions/:id
   fastify.get<{ Params: { id: string } }>('/:id', async (request) => {
     const user = request.user as TokenPayload
@@ -29,6 +35,17 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/', async (request, reply) => {
     const user = request.user as TokenPayload
     const input = createTransactionSchema.parse(request.body)
+
+    if (input.installmentCount && input.installmentCount >= 2) {
+      // Criação parcelada
+      const result = await transactionsService.createInstallmentTransaction(
+        user.familyId,
+        user.sub,
+        { ...input, installmentCount: input.installmentCount },
+      )
+      return reply.status(201).send(result)
+    }
+
     const transaction = await transactionsService.createTransaction(user.familyId, user.sub, input)
     return reply.status(201).send(transaction)
   })
@@ -51,6 +68,13 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string } }>('/:id/confirm', async (request) => {
     const user = request.user as TokenPayload
     return transactionsService.confirmTransaction(user.familyId, request.params.id)
+  })
+
+  // DELETE /transactions/recurring/:id — cancela template e futuros drafts
+  fastify.delete<{ Params: { id: string } }>('/recurring/:id', async (request, reply) => {
+    const user = request.user as TokenPayload
+    await transactionsService.cancelRecurringTemplate(user.familyId, request.params.id)
+    return reply.status(204).send()
   })
 
   // PATCH /transactions/:id
