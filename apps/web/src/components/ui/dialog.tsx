@@ -75,7 +75,7 @@ export function Dialog({
     <DialogContext.Provider value={ctx}>
       <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60" />
+          <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/75" />
           <DialogPrimitive.Content
             onInteractOutside={(e) => {
               if (preventClose) e.preventDefault()
@@ -84,7 +84,7 @@ export function Dialog({
               if (preventClose) e.preventDefault()
             }}
             className={cn(
-              'fixed left-1/2 top-1/2 z-[51] flex w-full max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border p-0 text-card-foreground shadow-2xl outline-none',
+              'fixed left-1/2 top-1/2 z-[91] flex w-full max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border p-0 text-card-foreground shadow-2xl outline-none',
               /* hsl(var(--card)) garante fundo opaco mesmo se o token Tailwind `bg-card` não resolver no v4 */
               'bg-[hsl(var(--card))]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',

@@ -97,7 +97,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} preventClose={isSubmitting}>
+    <Dialog open={open} onClose={onClose} className="max-w-md" preventClose={isSubmitting}>
       <DialogHeader title={transaction ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-4">
