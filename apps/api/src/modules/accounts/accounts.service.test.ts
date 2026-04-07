@@ -91,7 +91,7 @@ describe('listAccounts', () => {
     const accounts = await listAccounts('family-1')
 
     expect(accounts).toHaveLength(1)
-    expect(accounts[0].currentBalance).toBe(1000)
+    expect(accounts[0].balance).toBe(1000)
     expect(prisma.account.findMany).toHaveBeenCalledWith({
       where: { familyId: 'family-1', isActive: true },
       orderBy: { createdAt: 'asc' },
@@ -108,7 +108,7 @@ describe('getAccount', () => {
     const account = await getAccount('family-1', 'acc-1')
 
     expect(account.id).toBe('acc-1')
-    expect(account.currentBalance).toBe(1000)
+    expect(account.balance).toBe(1000)
   })
 
   it('deve lançar 404 quando conta não existe ou não pertence à família', async () => {

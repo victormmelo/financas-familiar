@@ -12,7 +12,7 @@ export async function listAccounts(familyId: string) {
   const accountsWithBalance = await Promise.all(
     accounts.map(async (account: (typeof accounts)[number]) => {
       const balance = await calculateBalance(account.id)
-      return { ...account, currentBalance: balance }
+      return { ...account, balance }
     }),
   )
 
@@ -25,8 +25,8 @@ export async function getAccount(familyId: string, accountId: string) {
   })
   if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
 
-  const currentBalance = await calculateBalance(accountId)
-  return { ...account, currentBalance }
+  const balance = await calculateBalance(accountId)
+  return { ...account, balance }
 }
 
 export async function calculateBalance(accountId: string): Promise<number> {
