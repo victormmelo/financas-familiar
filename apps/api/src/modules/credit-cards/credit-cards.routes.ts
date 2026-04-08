@@ -58,6 +58,15 @@ const creditCardsRoutes: FastifyPluginAsync = async (fastify) => {
     return creditCardsService.getCurrentInvoice(user.familyId, request.params.id)
   })
 
+  // GET /credit-cards/:id/invoices/:invoiceId
+  fastify.get<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId',
+    async (request) => {
+      const user = request.user as TokenPayload
+      return creditCardsService.getInvoice(user.familyId, request.params.id, request.params.invoiceId)
+    },
+  )
+
   // POST /credit-cards/:id/invoices/:invoiceId/pay
   fastify.post<{ Params: { id: string; invoiceId: string } }>(
     '/:id/invoices/:invoiceId/pay',

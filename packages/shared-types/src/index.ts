@@ -164,12 +164,18 @@ export interface Transaction {
   creditCardId: string | null
   isRecurring: boolean
   rrule: string | null
+  recurringTemplateId: string | null
+  installmentGroupId: string | null
+  installmentIndex: number | null
+  installmentCount: number | null
   confirmedAt: string | null
   createdAt: string
   updatedAt: string
   account?: { id: string; name: string; color: string | null }
   category?: { id: string; name: string; type: CategoryType } | null
   createdBy?: { id: string; name: string }
+  /** Próximas ocorrências (apenas em templates recorrentes) */
+  nextOccurrences?: string[]
 }
 
 export interface CreateTransactionInput {
@@ -184,7 +190,17 @@ export interface CreateTransactionInput {
   creditCardId?: string
   isRecurring?: boolean
   rrule?: string
+  /** Número de parcelas (2-360). Mutuamente exclusivo com isRecurring. */
+  installmentCount?: number
 }
+
+export interface InstallmentCreationResult {
+  installmentGroupId: string
+  installmentCount: number
+  transactions: Transaction[]
+}
+
+export type RecurringFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
 
 export interface UpdateTransactionInput {
   accountId?: string
@@ -262,10 +278,13 @@ export interface CreditCardInvoice {
   referenceYear: number
   totalAmount: number
   status: InvoiceStatus
+  dueDate: string
   paidAt: string | null
   paidFromAccountId: string | null
+  paidFromAccount?: { id: string; name: string } | null
   createdAt: string
   updatedAt: string
+  transactions?: Transaction[]
 }
 
 // ─── Goal ─────────────────────────────────────────────────────────────────────

@@ -203,11 +203,15 @@ model Transaction {
   source       DraftSource       @default(MANUAL)
   transferId   String?           @map("transfer_id")
   creditCardId String?           @map("credit_card_id")
-  isRecurring  Boolean           @default(false) @map("is_recurring")
-  rrule        String?
-  confirmedAt  DateTime?         @map("confirmed_at")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  isRecurring         Boolean           @default(false) @map("is_recurring")
+  rrule               String?
+  recurringTemplateId String?           @map("recurring_template_id")
+  installmentGroupId  String?           @map("installment_group_id")
+  installmentIndex    Int?              @map("installment_index")
+  installmentCount    Int?              @map("installment_count")
+  confirmedAt         DateTime?         @map("confirmed_at")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
 
   family     Family      @relation(fields: [familyId], references: [id])
   account    Account     @relation(fields: [accountId], references: [id])
@@ -288,6 +292,7 @@ model CreditCardInvoice {
   paidFromAccount Account?   @relation(fields: [paidFromAccountId], references: [id])
 
   @@unique([creditCardId, referenceMonth, referenceYear])
+  @@index([status])
   @@map("credit_card_invoices")
 }
 

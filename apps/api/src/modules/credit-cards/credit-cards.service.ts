@@ -7,6 +7,14 @@ import type {
   PayInvoiceInput,
 } from './credit-cards.schema.js'
 
+/** Calcula a data de vencimento de uma fatura com base no cartão. */
+function calculateDueDate(referenceMonth: number, referenceYear: number, dueDay: number): string {
+  // Vencimento é no mês seguinte ao fechamento
+  const dueMonth = referenceMonth === 12 ? 1 : referenceMonth + 1
+  const dueYear = referenceMonth === 12 ? referenceYear + 1 : referenceYear
+  return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`
+}
+
 async function getInvoiceSpending(cardId: string, month: number, year: number): Promise<number> {
   const result = await prisma.transaction.aggregate({
     where: {
@@ -127,8 +135,43 @@ export async function listInvoices(
   ])
 
   return {
-    data: invoices,
+    data: invoices.map((inv) => ({
+      ...inv,
+      dueDate: calculateDueDate(inv.referenceMonth, inv.referenceYear, card.dueDay),
+    })),
     pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+  }
+}
+
+export async function getInvoice(familyId: string, cardId: string, invoiceId: string) {
+  const card = await prisma.creditCard.findFirst({ where: { id: cardId, familyId } })
+  if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
+
+  const invoice = await prisma.creditCardInvoice.findFirst({
+    where: { id: invoiceId, creditCardId: cardId },
+    include: { paidFromAccount: { select: { id: true, name: true } } },
+  })
+  if (!invoice) throw Object.assign(new Error('Fatura não encontrada'), { statusCode: 404 })
+
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      creditCardId: cardId,
+      status: { not: 'DELETED' },
+      date: {
+        gte: new Date(invoice.referenceYear, invoice.referenceMonth - 1, 1),
+        lt: new Date(invoice.referenceYear, invoice.referenceMonth, 1),
+      },
+    },
+    include: {
+      category: { select: { id: true, name: true, type: true } },
+    },
+    orderBy: { date: 'desc' },
+  })
+
+  return {
+    ...invoice,
+    dueDate: calculateDueDate(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
+    transactions,
   }
 }
 
@@ -142,7 +185,6 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
 
   const spending = await getInvoiceSpending(cardId, month, year)
 
-  // Upsert: find or create the current invoice record
   const invoice = await prisma.creditCardInvoice.upsert({
     where: {
       creditCardId_referenceMonth_referenceYear: {
@@ -176,7 +218,11 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
     orderBy: { date: 'desc' },
   })
 
-  return { ...invoice, transactions }
+  return {
+    ...invoice,
+    dueDate: calculateDueDate(month, year, card.dueDay),
+    transactions,
+  }
 }
 
 export async function payInvoice(
@@ -227,8 +273,13 @@ export async function payInvoice(
     })
   })
 
-  return prisma.creditCardInvoice.findUniqueOrThrow({
+  const paid = await prisma.creditCardInvoice.findUniqueOrThrow({
     where: { id: invoiceId },
     include: { paidFromAccount: { select: { id: true, name: true } } },
   })
+
+  return {
+    ...paid,
+    dueDate: calculateDueDate(paid.referenceMonth, paid.referenceYear, card.dueDay),
+  }
 }

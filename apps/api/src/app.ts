@@ -42,6 +42,7 @@ import reconciliationRoutes from './modules/reconciliation/reconciliation.routes
 import './jobs/email.worker.js'
 import './jobs/reports.worker.js'
 import './jobs/recurring-transactions.worker.js'
+import './jobs/invoice-closing.worker.js'
 
 /** Pretty só em dev local com devDependencies; Docker/prod sem pino-pretty usa JSON. */
 const usePrettyLogger = env.NODE_ENV === 'development' && isPinoPrettyInstalled()

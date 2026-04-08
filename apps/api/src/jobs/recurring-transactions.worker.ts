@@ -4,17 +4,19 @@ import { prisma } from '../lib/prisma.js'
 import { redisBullmq } from '../lib/redis.js'
 import type { RecurringTransactionsJobData } from './recurring-transactions.queue.js'
 
+const LOOKAHEAD_DAYS = 90
+
 /**
- * Para cada transação com isRecurring=true e rrule definida,
- * verifica se já existe uma ocorrência (DRAFT ou CONFIRMED) para a data alvo.
- * Se não existir, cria um novo DRAFT espelhando os dados da transação original.
+ * Gera ocorrências de recorrências para um intervalo de datas.
+ * Idempotente: checa existência antes de criar (familyId + accountId + description + date + source).
  */
-async function generateOccurrences(targetDate: Date) {
-  const targetDateOnly = new Date(
-    Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()),
+export async function generateOccurrences(fromDate: Date, toDate: Date) {
+  const from = new Date(
+    Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()),
   )
-  const nextDay = new Date(targetDateOnly)
-  nextDay.setUTCDate(nextDay.getUTCDate() + 1)
+  const to = new Date(
+    Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), toDate.getUTCDate(), 23, 59, 59),
+  )
 
   // Busca todas as transações recorrentes confirmadas com rrule
   const templates = await prisma.transaction.findMany({
@@ -51,50 +53,56 @@ async function generateOccurrences(targetDate: Date) {
       continue
     }
 
-    // Verifica se a regra produz uma ocorrência nessa data
-    const occurrences = rule.between(targetDateOnly, nextDay, true)
+    const occurrences = rule.between(from, to, true)
     if (occurrences.length === 0) {
       skipped++
       continue
     }
 
-    // Verifica se já existe um lançamento para essa data gerado a partir desse template
-    // Usa a combinação familyId + accountId + description + date como chave de idempotência
-    const existing = await prisma.transaction.findFirst({
-      where: {
-        familyId: template.familyId,
-        accountId: template.accountId,
-        description: template.description,
-        date: targetDateOnly,
-        source: template.source,
-        status: { in: ['DRAFT', 'CONFIRMED'] },
-      },
-    })
+    for (const occurrenceDate of occurrences) {
+      const targetDateOnly = new Date(
+        Date.UTC(occurrenceDate.getUTCFullYear(), occurrenceDate.getUTCMonth(), occurrenceDate.getUTCDate()),
+      )
 
-    if (existing) {
-      skipped++
-      continue
+      // Idempotência: checa se já existe draft/confirmed para essa data
+      const existing = await prisma.transaction.findFirst({
+        where: {
+          familyId: template.familyId,
+          accountId: template.accountId,
+          description: template.description,
+          date: targetDateOnly,
+          source: template.source,
+          status: { in: ['DRAFT', 'CONFIRMED'] },
+          recurringTemplateId: template.id,
+        },
+      })
+
+      if (existing) {
+        skipped++
+        continue
+      }
+
+      await prisma.transaction.create({
+        data: {
+          familyId: template.familyId,
+          accountId: template.accountId,
+          categoryId: template.categoryId,
+          createdById: template.createdById,
+          type: template.type,
+          status: 'DRAFT',
+          amount: template.amount,
+          description: template.description,
+          notes: template.notes,
+          date: targetDateOnly,
+          source: template.source,
+          creditCardId: template.creditCardId,
+          isRecurring: false,
+          recurringTemplateId: template.id,
+        },
+      })
+
+      created++
     }
-
-    await prisma.transaction.create({
-      data: {
-        familyId: template.familyId,
-        accountId: template.accountId,
-        categoryId: template.categoryId,
-        createdById: template.createdById,
-        type: template.type,
-        status: 'DRAFT',
-        amount: template.amount,
-        description: template.description,
-        notes: template.notes,
-        date: targetDateOnly,
-        source: template.source,
-        creditCardId: template.creditCardId,
-        isRecurring: false, // a ocorrência em si não é recorrente
-      },
-    })
-
-    created++
   }
 
   return { templates: templates.length, created, skipped }
@@ -103,13 +111,14 @@ async function generateOccurrences(targetDate: Date) {
 export const recurringTransactionsWorker = new Worker<RecurringTransactionsJobData>(
   'recurring-transactions',
   async (job) => {
-    const targetDate = job.data.targetDate
-      ? new Date(job.data.targetDate)
-      : new Date()
+    // Se targetDate fornecido, usa como ponto de partida; senão usa hoje
+    const startDate = job.data.targetDate ? new Date(job.data.targetDate) : new Date()
+    const endDate = new Date(startDate)
+    endDate.setDate(endDate.getDate() + LOOKAHEAD_DAYS)
 
-    const result = await generateOccurrences(targetDate)
+    const result = await generateOccurrences(startDate, endDate)
     console.log(
-      `[RecurringWorker] Data: ${targetDate.toISOString().slice(0, 10)} | Templates: ${result.templates} | Criados: ${result.created} | Ignorados: ${result.skipped}`,
+      `[RecurringWorker] De: ${startDate.toISOString().slice(0, 10)} até ${endDate.toISOString().slice(0, 10)} | Templates: ${result.templates} | Criados: ${result.created} | Ignorados: ${result.skipped}`,
     )
     return result
   },
@@ -125,7 +134,7 @@ recurringTransactionsWorker.on('failed', (job, err) => {
 })
 
 // ─── Scheduler diário ────────────────────────────────────────────────────────
-// Registra um job repetível que roda todo dia à meia-noite UTC
+// Roda todo dia à meia-noite UTC e gera os próximos 90 dias de ocorrências
 const schedulerQueue = new Queue<RecurringTransactionsJobData>('recurring-transactions', {
   connection: redisBullmq,
 })

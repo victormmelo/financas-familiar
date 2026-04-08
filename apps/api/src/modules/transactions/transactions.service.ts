@@ -1,4 +1,7 @@
 import { prisma } from '../../lib/prisma.js'
+import { randomUUID } from 'crypto'
+import { RRule } from 'rrule'
+import { generateOccurrences } from '../../jobs/recurring-transactions.worker.js'
 import type {
   CreateTransactionInput,
   UpdateTransactionInput,
@@ -8,7 +11,7 @@ import type {
 } from './transactions.schema.js'
 
 export async function listTransactions(familyId: string, query: ListTransactionsInput) {
-  const { page, limit, accountId, categoryId, type, status, startDate, endDate } = query
+  const { page, limit, accountId, categoryId, type, status, startDate, endDate, isRecurring } = query
   const skip = (page - 1) * limit
 
   const where = {
@@ -17,6 +20,7 @@ export async function listTransactions(familyId: string, query: ListTransactions
     ...(categoryId && { categoryId }),
     ...(type && { type }),
     ...(status && { status }),
+    ...(isRecurring !== undefined && { isRecurring }),
     ...(startDate || endDate
       ? {
           date: {
@@ -67,6 +71,10 @@ export async function getTransaction(familyId: string, transactionId: string) {
   return transaction
 }
 
+/**
+ * Cria uma transação simples (sem parcelamento).
+ * Se isRecurring=true, gera imediatamente as próximas ocorrências (90 dias).
+ */
 export async function createTransaction(familyId: string, userId: string, input: CreateTransactionInput) {
   const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
   if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
@@ -76,7 +84,7 @@ export async function createTransaction(familyId: string, userId: string, input:
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
   }
 
-  return prisma.transaction.create({
+  const transaction = await prisma.transaction.create({
     data: {
       familyId,
       accountId: input.accountId,
@@ -97,6 +105,131 @@ export async function createTransaction(familyId: string, userId: string, input:
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
     },
+  })
+
+  // Após criar template recorrente, gera imediatamente os próximos 90 dias de drafts
+  if (input.isRecurring && input.rrule) {
+    const today = new Date()
+    const endDate = new Date(today)
+    endDate.setDate(endDate.getDate() + 90)
+    generateOccurrences(today, endDate).catch((err) => {
+      console.error('[RecurringService] Erro ao gerar ocorrências iniciais:', err)
+    })
+  }
+
+  return transaction
+}
+
+/**
+ * Cria transação parcelada: N drafts com mesmo installmentGroupId.
+ * Datas são calculadas mensalmente a partir da data inicial.
+ */
+export async function createInstallmentTransaction(
+  familyId: string,
+  userId: string,
+  input: CreateTransactionInput & { installmentCount: number },
+) {
+  const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
+  if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
+
+  if (input.categoryId) {
+    const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
+    if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+  }
+
+  const installmentGroupId = randomUUID()
+  const baseDate = new Date(input.date)
+
+  const transactions = await prisma.$transaction(
+    Array.from({ length: input.installmentCount }, (_, i) => {
+      const installmentDate = new Date(baseDate)
+      installmentDate.setMonth(installmentDate.getMonth() + i)
+
+      return prisma.transaction.create({
+        data: {
+          familyId,
+          accountId: input.accountId,
+          categoryId: input.categoryId,
+          createdById: userId,
+          type: input.type,
+          status: 'DRAFT',
+          amount: input.amount,
+          description: `${input.description} (${i + 1}/${input.installmentCount})`,
+          notes: input.notes,
+          date: installmentDate,
+          source: input.source ?? 'MANUAL',
+          creditCardId: input.creditCardId,
+          installmentGroupId,
+          installmentIndex: i + 1,
+          installmentCount: input.installmentCount,
+        },
+        include: {
+          account: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true, type: true } },
+          createdBy: { select: { id: true, name: true } },
+        },
+      })
+    }),
+  )
+
+  return { installmentGroupId, installmentCount: input.installmentCount, transactions }
+}
+
+/** Lista todos os templates de recorrência da família (isRecurring=true). */
+export async function listRecurringTemplates(familyId: string) {
+  const templates = await prisma.transaction.findMany({
+    where: { familyId, isRecurring: true, status: { not: 'DELETED' } },
+    include: {
+      account: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, type: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  return templates.map((t) => {
+    let nextOccurrences: string[] = []
+    if (t.rrule) {
+      try {
+        const rule = RRule.fromString(t.rrule)
+        const today = new Date()
+        const end = new Date(today)
+        end.setDate(end.getDate() + 90)
+        nextOccurrences = rule.between(today, end, true).slice(0, 5).map((d) => d.toISOString().slice(0, 10))
+      } catch {
+        // rrule inválida — ignora
+      }
+    }
+    return { ...t, nextOccurrences }
+  })
+}
+
+/**
+ * Cancela um template recorrente: soft-delete no template e em todos os drafts futuros gerados por ele.
+ */
+export async function cancelRecurringTemplate(familyId: string, templateId: string) {
+  const template = await prisma.transaction.findFirst({
+    where: { id: templateId, familyId, isRecurring: true },
+  })
+  if (!template) throw Object.assign(new Error('Template recorrente não encontrado'), { statusCode: 404 })
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Soft-delete os drafts futuros gerados por esse template
+  await prisma.transaction.updateMany({
+    where: {
+      familyId,
+      recurringTemplateId: templateId,
+      status: 'DRAFT',
+      date: { gte: today },
+    },
+    data: { status: 'DELETED' },
+  })
+
+  // Soft-delete o próprio template
+  return prisma.transaction.update({
+    where: { id: templateId },
+    data: { status: 'DELETED' },
   })
 }
 
@@ -222,7 +355,6 @@ export async function deleteTransaction(familyId: string, transactionId: string)
   })
   if (!transaction) throw Object.assign(new Error('Transação não encontrada'), { statusCode: 404 })
 
-  // Soft delete
   return prisma.transaction.update({
     where: { id: transactionId },
     data: { status: 'DELETED' },

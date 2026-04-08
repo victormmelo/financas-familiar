@@ -12,9 +12,18 @@ export const createTransactionSchema = z.object({
   notes: z.string().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use YYYY-MM-DD)'),
   source: draftSourceEnum.default('MANUAL'),
+  creditCardId: z.string().uuid().optional(),
   isRecurring: z.boolean().default(false),
   rrule: z.string().optional(),
-})
+  // parcelamento — mutuamente exclusivo com isRecurring
+  installmentCount: z.number().int().min(2).max(360).optional(),
+}).refine(
+  (data) => !(data.isRecurring && data.installmentCount),
+  { message: 'Uma transação não pode ser recorrente e parcelada ao mesmo tempo', path: ['installmentCount'] },
+).refine(
+  (data) => !data.isRecurring || !!data.rrule,
+  { message: 'Transações recorrentes requerem o campo rrule', path: ['rrule'] },
+)
 
 export const updateTransactionSchema = z.object({
   categoryId: z.string().uuid().optional().nullable(),
@@ -43,6 +52,7 @@ export const listTransactionsSchema = z.object({
   status: z.enum(['DRAFT', 'CONFIRMED', 'DELETED']).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  isRecurring: z.coerce.boolean().optional(),
 })
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>

@@ -16,6 +16,13 @@ export interface Transaction {
   category?: { id: string; name: string; color?: string }
   createdById: string
   createdAt: string
+  isRecurring: boolean
+  rrule?: string | null
+  recurringTemplateId?: string | null
+  installmentGroupId?: string | null
+  installmentIndex?: number | null
+  installmentCount?: number | null
+  nextOccurrences?: string[]
 }
 
 export interface TransactionFilters {
@@ -27,6 +34,7 @@ export interface TransactionFilters {
   status?: 'DRAFT' | 'CONFIRMED' | 'DELETED'
   startDate?: string
   endDate?: string
+  isRecurring?: boolean
 }
 
 export interface TransactionListResponse {
@@ -76,19 +84,33 @@ export function useTransactions(filters: TransactionFilters = {}) {
   })
 }
 
+/** Lista os templates de transações recorrentes da família. */
+export function useRecurringTemplates() {
+  return useQuery({
+    queryKey: ['transactions', 'recurring'],
+    queryFn: () => api.get<Transaction[]>('/transactions/recurring'),
+  })
+}
+
+export interface CreateTransactionPayload {
+  accountId: string
+  categoryId?: string
+  type: string
+  amount: number
+  description: string
+  notes?: string
+  date: string
+  source?: string
+  creditCardId?: string
+  isRecurring?: boolean
+  rrule?: string
+  installmentCount?: number
+}
+
 export function useCreateTransaction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: {
-      accountId: string
-      categoryId?: string
-      type: string
-      amount: number
-      description: string
-      notes?: string
-      date: string
-      source?: string
-    }) => api.post<Transaction>('/transactions', data),
+    mutationFn: (data: CreateTransactionPayload) => api.post<Transaction>('/transactions', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
@@ -140,6 +162,18 @@ export function useDeleteTransaction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/transactions/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+/** Cancela um template recorrente e seus drafts futuros. */
+export function useCancelRecurringTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (templateId: string) => api.delete(`/transactions/recurring/${templateId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
