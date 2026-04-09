@@ -16,6 +16,7 @@ import {
   Receipt,
   LogOut,
   KeyRound,
+  Repeat2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth.store'
@@ -24,6 +25,7 @@ import { api } from '@/lib/api'
 export const APP_NAV_ITEMS: readonly { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/app/transacoes', label: 'Transações', icon: Receipt },
+  { href: '/app/contas-fixas', label: 'Contas Fixas', icon: Repeat2 },
   { href: '/app/contas', label: 'Contas', icon: Wallet },
   { href: '/app/categorias', label: 'Categorias', icon: Tags },
   { href: '/app/cartoes', label: 'Cartões', icon: CreditCard },

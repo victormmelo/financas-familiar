@@ -66,9 +66,10 @@ interface Props {
   open: boolean
   onClose: () => void
   transaction?: Transaction
+  defaultMode?: 'simple' | 'recurring' | 'installment'
 }
 
-export function TransactionForm({ open, onClose, transaction }: Props) {
+export function TransactionForm({ open, onClose, transaction, defaultMode = 'simple' }: Props) {
   const { data: accounts } = useAccounts()
   const { data: categories } = useCategories()
   const create = useCreateTransaction()
@@ -99,7 +100,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
       : {
           type: 'EXPENSE',
           date: formatDateInput(new Date()),
-          mode: 'simple',
+          mode: defaultMode,
           frequency: 'MONTHLY',
         },
   })

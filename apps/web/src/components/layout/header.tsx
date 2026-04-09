@@ -15,6 +15,7 @@ import {
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/app/dashboard': { title: 'Dashboard', subtitle: 'Visão geral operacional' },
   '/app/transacoes': { title: 'Transações', subtitle: 'Monitoramento de lançamentos' },
+  '/app/contas-fixas': { title: 'Contas Fixas', subtitle: 'Recorrências automáticas' },
   '/app/contas': { title: 'Contas', subtitle: 'Controle de contas e saldos' },
   '/app/categorias': { title: 'Categorias', subtitle: 'Classificação de receitas e despesas' },
   '/app/cartoes': { title: 'Cartões de Crédito', subtitle: 'Faturas e limites' },
