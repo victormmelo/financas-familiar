@@ -14,3 +14,5 @@ Sentry.init({
   // Desabilita em desenvolvimento para não poluir o dashboard
   enabled: process.env.NODE_ENV === 'production',
 })
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart

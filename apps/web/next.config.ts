@@ -20,5 +20,9 @@ export default withSentryConfig(nextConfig, {
   // Upload de source maps apenas em produção (requer SENTRY_AUTH_TOKEN)
   widenClientFileUpload: true,
   sourcemaps: { disable: true },
-  disableLogger: true,
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
 })
