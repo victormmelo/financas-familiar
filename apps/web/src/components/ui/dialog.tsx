@@ -103,18 +103,25 @@ export function Dialog({
 
 interface DialogHeaderProps {
   title: string
+  /** Texto secundário opcional abaixo do título (ex.: contexto do fluxo). */
+  description?: string
   /** Mantido na API por compatibilidade; o fechamento respeita `preventClose` do `Dialog` via contexto. */
   onClose: () => void
 }
 
-export function DialogHeader({ title, onClose: _onClose }: DialogHeaderProps) {
+export function DialogHeader({ title, description, onClose: _onClose }: DialogHeaderProps) {
   const { preventClose, onRequestClose } = useDialogContext('DialogHeader')
 
   return (
-    <div className="flex shrink-0 items-center justify-between border-b border-border bg-[hsl(var(--card))] p-6">
-      <DialogPrimitive.Title className="text-lg font-semibold text-card-foreground">
-        {title}
-      </DialogPrimitive.Title>
+    <div className="flex shrink-0 items-start justify-between border-b border-border bg-[hsl(var(--card))] p-6">
+      <div className="min-w-0 flex-1 pr-4">
+        <DialogPrimitive.Title className="text-lg font-semibold text-card-foreground">
+          {title}
+        </DialogPrimitive.Title>
+        {description ? (
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        ) : null}
+      </div>
       <button
         type="button"
         disabled={preventClose}

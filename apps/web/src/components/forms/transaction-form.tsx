@@ -16,7 +16,8 @@ import { useCreditCards } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
-import { normalizeReaisForApi } from '@financas/shared-types'
+import { normalizeReaisForApi, type UserEntryPreferences } from '@financas/shared-types'
+import { useAuthStore } from '@/stores/auth.store'
 
 // ─── RRULE builder helpers ────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ function buildRRule(frequency: Frequency, startDate: string): string {
 
 const schema = z
   .object({
-    accountId: z.string().min(1, 'Selecione uma conta'),
+    accountId: z.string(),
     categoryId: z.string().optional(),
     creditCardId: z.string().optional(),
     /** Receita creditada na fatura (estorno/cashback) — exige cartão quando true */
@@ -64,6 +65,7 @@ const schema = z
       .min(2, 'Mínimo 2 parcelas')
       .max(360, 'Máximo 360 parcelas')
       .optional(),
+    liquidated: z.boolean().default(true),
   })
   .superRefine((data, ctx) => {
     if (data.type === 'INCOME' && data.cardCreditOnInvoice && !data.creditCardId?.trim()) {
@@ -78,6 +80,16 @@ const schema = z
         code: z.ZodIssueCode.custom,
         message: 'Selecione o cartão da fatura',
         path: ['creditCardId'],
+      })
+    }
+    const accountOptional =
+      (data.type === 'EXPENSE' && data.expenseSettlement === 'CARD') ||
+      (data.type === 'INCOME' && data.cardCreditOnInvoice)
+    if (!accountOptional && !data.accountId?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Selecione uma conta',
+        path: ['accountId'],
       })
     }
   })
@@ -98,7 +110,26 @@ function buildCreateDefaults(createEntry: 'default' | 'card' | undefined): Parti
     description: '',
     notes: '',
     installmentCount: undefined,
+    liquidated: true,
   }
+}
+
+function mergeEntryLaunchDefaults(
+  base: Partial<FormData>,
+  prefs: UserEntryPreferences | undefined,
+  createEntry: 'default' | 'card' | undefined,
+): Partial<FormData> {
+  const entry = createEntry ?? 'default'
+  if (!prefs) {
+    return entry === 'card' ? { ...base, expenseSettlement: 'CARD' as const } : base
+  }
+  const next: Partial<FormData> = { ...base }
+  if (prefs.accountId) next.accountId = prefs.accountId
+  if (prefs.creditCardId) next.creditCardId = prefs.creditCardId
+  if (entry === 'card') {
+    next.expenseSettlement = 'CARD'
+  }
+  return next
 }
 
 interface Props {
@@ -158,6 +189,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           date: transaction.date,
           mode: 'simple',
           frequency: 'MONTHLY',
+          liquidated: transaction.liquidated ?? false,
         }
       : buildCreateDefaults(createEntry),
   })
@@ -166,8 +198,37 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
   const selectedMode = watch('mode')
   const cardCreditOnInvoice = watch('cardCreditOnInvoice')
   const expenseSettlement = watch('expenseSettlement')
+  const watchedCreditCardId = watch('creditCardId')
+
+  const isEdit = !!transaction
+  const showAccountField =
+    isEdit ||
+    (selectedType === 'EXPENSE' && expenseSettlement === 'ACCOUNT') ||
+    (selectedType === 'INCOME' && !cardCreditOnInvoice)
 
   const creditCardIdField = register('creditCardId')
+
+  useEffect(() => {
+    if (isEdit || !creditCards) return
+    if (selectedType !== 'EXPENSE' || expenseSettlement !== 'CARD') return
+    const cid = watchedCreditCardId?.trim()
+    if (!cid) return
+    const card = creditCards.find((c) => c.id === cid)
+    if (card?.defaultAccountId) {
+      setValue('accountId', card.defaultAccountId, { shouldValidate: true })
+    }
+  }, [isEdit, creditCards, selectedType, expenseSettlement, watchedCreditCardId, setValue])
+
+  useEffect(() => {
+    if (isEdit || !creditCards) return
+    if (!cardCreditOnInvoice) return
+    const cid = watchedCreditCardId?.trim()
+    if (!cid) return
+    const card = creditCards.find((c) => c.id === cid)
+    if (card?.defaultAccountId) {
+      setValue('accountId', card.defaultAccountId, { shouldValidate: true })
+    }
+  }, [isEdit, creditCards, cardCreditOnInvoice, watchedCreditCardId, setValue])
 
   useEffect(() => {
     if (!open) return
@@ -185,10 +246,12 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
         date: transaction.date,
         mode: 'simple',
         frequency: 'MONTHLY',
+        liquidated: transaction.liquidated ?? false,
       })
       return
     }
-    reset(buildCreateDefaults(createEntry))
+    const prefs = useAuthStore.getState().user?.entryPreferences
+    reset(mergeEntryLaunchDefaults(buildCreateDefaults(createEntry), prefs, createEntry))
   }, [open, transaction?.id, createEntry, transaction, reset])
 
   useEffect(() => {
@@ -204,6 +267,16 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     (c) => c.type === selectedType || c.type === 'BOTH',
   )
 
+  const headerDescription = useMemo(() => {
+    if (isEdit) return undefined
+    if (selectedType === 'EXPENSE') {
+      return expenseSettlement === 'CARD'
+        ? 'Despesa na fatura do cartão'
+        : 'Despesa à vista na conta'
+    }
+    return undefined
+  }, [isEdit, selectedType, expenseSettlement])
+
   async function onSubmit(data: FormData) {
     try {
       if (transaction) {
@@ -214,6 +287,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           description: data.description,
           notes: data.notes || null,
           date: data.date,
+          liquidated: data.liquidated,
         })
         toast('Transação atualizada!', 'success')
       } else {
@@ -225,8 +299,12 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           creditCardId = data.expenseSettlement === 'CARD' ? rawCard || undefined : undefined
         }
 
+        const omitAccountId =
+          (data.type === 'EXPENSE' && data.expenseSettlement === 'CARD') ||
+          (data.type === 'INCOME' && data.cardCreditOnInvoice)
+
         const base = {
-          accountId: data.accountId,
+          ...(omitAccountId ? {} : { accountId: data.accountId }),
           categoryId: data.categoryId || undefined,
           creditCardId,
           type: data.type,
@@ -235,6 +313,8 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           notes: data.notes || undefined,
           date: data.date,
           source: 'MANUAL' as const,
+          liquidated: data.liquidated,
+          confirmed: true,
         }
 
         if (data.mode === 'recurring') {
@@ -243,13 +323,16 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             isRecurring: true,
             rrule: buildRRule(data.frequency, data.date),
           })
-          toast('Recorrência criada! Rascunhos gerados para os próximos 90 dias.', 'success')
+          toast(
+            'Recorrência criada e confirmada! Rascunhos das próximas ocorrências gerados para os próximos 90 dias.',
+            'success',
+          )
         } else if (data.mode === 'installment') {
           await create.mutateAsync({
             ...base,
             installmentCount: data.installmentCount,
           })
-          toast(`${data.installmentCount} parcelas criadas como rascunho!`, 'success')
+          toast(`${data.installmentCount} parcelas criadas e confirmadas!`, 'success')
         } else {
           await create.mutateAsync(base)
           toast('Transação criada!', 'success')
@@ -266,8 +349,6 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     }
   }
 
-  const isEdit = !!transaction
-
   return (
     <Dialog
       open={open}
@@ -275,7 +356,11 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
       className="w-full max-w-xl"
       preventClose={isSubmitting}
     >
-      <DialogHeader title={isEdit ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
+      <DialogHeader
+        title={isEdit ? 'Editar Transação' : 'Nova Transação'}
+        description={headerDescription}
+        onClose={onClose}
+      />
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-5">
 
@@ -370,17 +455,19 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             />
           </div>
 
-          <div className="min-w-0 space-y-1.5">
-            <Label htmlFor="tx-form-account">Conta</Label>
-            <Select id="tx-form-account" error={errors.accountId?.message} {...register('accountId')}>
-              <option value="">Selecione uma conta</option>
-              {selectableAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+          {showAccountField && (
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="tx-form-account">Conta</Label>
+              <Select id="tx-form-account" error={errors.accountId?.message} {...register('accountId')}>
+                <option value="">Selecione uma conta</option>
+                {selectableAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
 
           {isEdit && transaction.creditCardId && (
             <p className="text-xs text-muted-foreground">
@@ -391,71 +478,35 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </p>
           )}
 
-          {!isEdit && selectedType === 'EXPENSE' && (
-            <fieldset className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/30 p-3">
-              <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Forma de pagamento
-              </legend>
+          {!isEdit && selectedType === 'EXPENSE' && expenseSettlement === 'CARD' && (
+            <div className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/30 p-3">
               <p className="text-[11px] leading-snug text-muted-foreground">
-                A conta continua obrigatória: ela ancora o lançamento. O cartão define se a despesa vai para a fatura
-                (sem alterar o saldo da conta até você pagar a fatura).
+                A conta padrão do cartão ancora o lançamento (cadastro do cartão). O débito entra na fatura; o saldo da
+                conta só muda quando a fatura for paga.
               </p>
-              <div
-                className="grid grid-cols-1 gap-1 rounded-sm border border-border p-1 bg-muted sm:grid-cols-2"
-                role="radiogroup"
-                aria-label="Forma de pagamento da despesa"
-              >
-                {(['ACCOUNT', 'CARD'] as const).map((value) => (
-                  <label key={value} className="cursor-pointer">
-                    <input
-                      type="radio"
-                      value={value}
-                      className="sr-only"
-                      checked={expenseSettlement === value}
-                      onChange={() => {
-                        setValue('expenseSettlement', value, { shouldValidate: true, shouldDirty: true })
-                        if (value === 'ACCOUNT') {
-                          setValue('creditCardId', '', { shouldValidate: true })
-                        }
-                      }}
-                    />
-                    <span
-                      className={`block text-center text-xs font-medium py-2 rounded-sm transition-colors ${
-                        expenseSettlement === value
-                          ? 'bg-background text-[#7CFC98] border border-[#285E38]'
-                          : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {value === 'ACCOUNT' ? 'À vista nesta conta' : 'Crédito (fatura) neste cartão'}
-                    </span>
-                  </label>
-                ))}
+              <div className="space-y-1.5">
+                <Label htmlFor="tx-form-credit-card">Cartão da fatura</Label>
+                <Select
+                  id="tx-form-credit-card"
+                  error={errors.creditCardId?.message}
+                  {...creditCardIdField}
+                  ref={(el) => {
+                    creditCardIdField.ref(el)
+                    creditCardSelectRef.current = el
+                  }}
+                >
+                  <option value="">Selecione o cartão</option>
+                  {selectableCreditCards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  O valor entra na fatura do cartão; o saldo da conta só muda quando a fatura for paga.
+                </p>
               </div>
-              {expenseSettlement === 'CARD' && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="tx-form-credit-card">Cartão da fatura</Label>
-                  <Select
-                    id="tx-form-credit-card"
-                    error={errors.creditCardId?.message}
-                    {...creditCardIdField}
-                    ref={(el) => {
-                      creditCardIdField.ref(el)
-                      creditCardSelectRef.current = el
-                    }}
-                  >
-                    <option value="">Selecione o cartão</option>
-                    {selectableCreditCards.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground">
-                    O valor entra na fatura do cartão; o saldo da conta só muda quando a fatura for paga.
-                  </p>
-                </div>
-              )}
-            </fieldset>
+            </div>
           )}
 
           {!isEdit && selectedType === 'INCOME' && (
@@ -565,6 +616,24 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
               </p>
             </div>
           )}
+
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <Controller
+              name="liquidated"
+              control={control}
+              render={({ field }) => (
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+                  checked={field.value}
+                  onChange={(e) => field.onChange(e.target.checked)}
+                  onBlur={field.onBlur}
+                  ref={field.ref}
+                />
+              )}
+            />
+            <span>Liquidado no caixa (saldo liquidado, fluxo de caixa e fatura)</span>
+          </label>
 
           <div className="min-w-0 space-y-1.5">
             <Label htmlFor="tx-form-notes">Observações</Label>

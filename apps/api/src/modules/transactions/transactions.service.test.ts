@@ -25,6 +25,9 @@ vi.mock('../../lib/prisma.js', () => ({
     category: {
       findFirst: vi.fn(),
     },
+    creditCard: {
+      findFirst: vi.fn(),
+    },
   },
 }))
 
@@ -57,9 +60,12 @@ const mockTransaction = {
   source: 'MANUAL' as const,
   transferId: null,
   creditCardId: null,
+  recognition: 'OPERATIONAL' as const,
+  creditCardInvoiceId: null,
   isRecurring: false,
   rrule: null,
   confirmedAt: null,
+  liquidated: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 }
@@ -129,6 +135,19 @@ describe('listTransactions', () => {
       }),
     )
   })
+
+  it('deve filtrar por liquidated quando informado', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([])
+    vi.mocked(prisma.transaction.count).mockResolvedValue(0)
+
+    await listTransactions('family-1', { page: 1, limit: 20, liquidated: true })
+
+    expect(prisma.transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ familyId: 'family-1', liquidated: true }),
+      }),
+    )
+  })
 })
 
 describe('createTransaction', () => {
@@ -146,11 +165,67 @@ describe('createTransaction', () => {
       date: '2026-04-01',
       source: 'MANUAL',
       isRecurring: false,
+      confirmed: false,
     })
 
     expect(prisma.transaction.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'DRAFT', familyId: 'family-1' }),
+        data: expect.objectContaining({ status: 'DRAFT', familyId: 'family-1', liquidated: false }),
+      }),
+    )
+  })
+
+  it('deve criar como CONFIRMED quando confirmed=true', async () => {
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+    vi.mocked(prisma.transaction.create).mockResolvedValue({
+      ...mockTransaction,
+      status: 'CONFIRMED',
+    } as never)
+
+    await createTransaction('family-1', 'user-1', {
+      accountId: 'acc-1',
+      categoryId: 'cat-1',
+      type: 'EXPENSE',
+      amount: 100,
+      description: 'Supermercado',
+      date: '2026-04-01',
+      source: 'MANUAL',
+      isRecurring: false,
+      confirmed: true,
+    })
+
+    expect(prisma.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'CONFIRMED',
+          confirmedAt: expect.any(Date),
+        }),
+      }),
+    )
+  })
+
+  it('deve persistir liquidated quando informado na criação', async () => {
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+    vi.mocked(prisma.transaction.create).mockResolvedValue({ ...mockTransaction, liquidated: true } as never)
+
+    await createTransaction('family-1', 'user-1', {
+      accountId: 'acc-1',
+      categoryId: 'cat-1',
+      type: 'EXPENSE',
+      amount: 100,
+      description: 'Supermercado',
+      date: '2026-04-01',
+      source: 'MANUAL',
+      isRecurring: false,
+      confirmed: false,
+      liquidated: true,
+    })
+
+    expect(prisma.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ liquidated: true }),
       }),
     )
   })
@@ -167,6 +242,7 @@ describe('createTransaction', () => {
         date: '2026-04-01',
         source: 'MANUAL',
         isRecurring: false,
+        confirmed: false,
       }),
     ).rejects.toMatchObject({ statusCode: 404 })
   })
@@ -185,6 +261,113 @@ describe('createTransaction', () => {
         date: '2026-04-01',
         source: 'MANUAL',
         isRecurring: false,
+        confirmed: false,
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('deve persistir creditCardId quando cartão pertence à família', async () => {
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      familyId: 'family-1',
+      name: 'Visa',
+      defaultAccountId: 'acc-1',
+    } as never)
+    vi.mocked(prisma.transaction.create).mockResolvedValue({
+      ...mockTransaction,
+      creditCardId: 'card-1',
+    } as never)
+
+    await createTransaction('family-1', 'user-1', {
+      accountId: 'acc-1',
+      categoryId: 'cat-1',
+      type: 'EXPENSE',
+      amount: 100,
+      description: 'Compra no cartão',
+      date: '2026-04-01',
+      source: 'MANUAL',
+      isRecurring: false,
+      confirmed: false,
+      creditCardId: 'card-1',
+    })
+
+    expect(prisma.creditCard.findFirst).toHaveBeenCalledWith({
+      where: { id: 'card-1', familyId: 'family-1' },
+    })
+    expect(prisma.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ creditCardId: 'card-1' }),
+      }),
+    )
+  })
+
+  it('deve usar defaultAccountId do cartão quando accountId omitido', async () => {
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      familyId: 'family-1',
+      name: 'Visa',
+      defaultAccountId: 'acc-2',
+    } as never)
+    vi.mocked(prisma.account.findFirst).mockResolvedValue({ ...mockAccount, id: 'acc-2' } as never)
+    vi.mocked(prisma.transaction.create).mockResolvedValue(mockTransaction as never)
+
+    await createTransaction('family-1', 'user-1', {
+      type: 'EXPENSE',
+      amount: 50,
+      description: 'Compra no cartão',
+      date: '2026-04-01',
+      source: 'MANUAL',
+      isRecurring: false,
+      confirmed: false,
+      creditCardId: 'card-1',
+    })
+
+    expect(prisma.transaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ accountId: 'acc-2', creditCardId: 'card-1' }),
+      }),
+    )
+  })
+
+  it('deve lançar 400 quando cartão sem conta padrão e accountId omitido', async () => {
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      familyId: 'family-1',
+      name: 'Visa',
+      defaultAccountId: null,
+    } as never)
+
+    await expect(
+      createTransaction('family-1', 'user-1', {
+        type: 'EXPENSE',
+        amount: 50,
+        description: 'Compra',
+        date: '2026-04-01',
+        source: 'MANUAL',
+        isRecurring: false,
+        confirmed: false,
+        creditCardId: 'card-1',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('deve lançar 404 quando cartão não pertence à família', async () => {
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue(null)
+
+    await expect(
+      createTransaction('family-1', 'user-1', {
+        accountId: 'acc-1',
+        categoryId: 'cat-1',
+        type: 'EXPENSE',
+        amount: 100,
+        description: 'Teste',
+        date: '2026-04-01',
+        source: 'MANUAL',
+        isRecurring: false,
+        confirmed: false,
+        creditCardId: 'card-inexistente',
       }),
     ).rejects.toMatchObject({ statusCode: 404 })
   })
@@ -350,6 +533,22 @@ describe('bulkSetCategory', () => {
     await expect(
       bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-x' }),
     ).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('updateTransaction', () => {
+  it('deve atualizar liquidated', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue(mockTransaction as never)
+    vi.mocked(prisma.transaction.update).mockResolvedValue({ ...mockTransaction, liquidated: true } as never)
+
+    await updateTransaction('family-1', 'tx-1', { liquidated: true })
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tx-1' },
+        data: expect.objectContaining({ liquidated: true }),
+      }),
+    )
   })
 })
 
