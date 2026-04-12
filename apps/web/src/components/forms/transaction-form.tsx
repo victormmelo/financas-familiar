@@ -255,7 +255,11 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           toast('Transação criada!', 'success')
         }
       }
-      reset()
+      if (transaction) {
+        reset()
+      } else {
+        reset(buildCreateDefaults(createEntry))
+      }
       onClose()
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao salvar transação', 'error')
