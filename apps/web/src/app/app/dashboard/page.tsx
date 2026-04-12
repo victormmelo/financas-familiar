@@ -26,9 +26,20 @@ import {
 } from '@/lib/utils'
 import { useMediaQuery } from '@/lib/use-media-query'
 import { useAuthStore } from '@/stores/auth.store'
+import type { TransactionRecognition } from '@financas/shared-types'
 import DashboardRouteLoading from './loading'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
+
+/** Receitas/despesas do mês ignoram pernas de transferência entre contas. */
+function countsForMonthIncomeExpenseTotals(t: {
+  recognition?: TransactionRecognition | null
+  transferId?: string | null
+}): boolean {
+  if (t.recognition === 'TRANSFER_LEG') return false
+  if (t.transferId) return false
+  return true
+}
 
 /** Alinhado a globals.css — card / border / foreground */
 const chartTooltipStyle = {
@@ -140,19 +151,23 @@ function DashboardContent() {
 
   const monthIncome = useMemo(
     () =>
-      transactions.filter((t) => t.type === 'INCOME').reduce((s, t) => s + Number(t.amount), 0),
+      transactions
+        .filter((t) => t.type === 'INCOME' && countsForMonthIncomeExpenseTotals(t))
+        .reduce((s, t) => s + Number(t.amount), 0),
     [transactions],
   )
   const monthExpense = useMemo(
     () =>
-      transactions.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + Number(t.amount), 0),
+      transactions
+        .filter((t) => t.type === 'EXPENSE' && countsForMonthIncomeExpenseTotals(t))
+        .reduce((s, t) => s + Number(t.amount), 0),
     [transactions],
   )
 
   const categoryData = useMemo(() => {
     const map: Record<string, number> = {}
     transactions
-      .filter((t) => t.type === 'EXPENSE' && t.category)
+      .filter((t) => t.type === 'EXPENSE' && t.category && countsForMonthIncomeExpenseTotals(t))
       .forEach((t) => {
         const name = t.category!.name
         map[name] = (map[name] ?? 0) + Number(t.amount)
