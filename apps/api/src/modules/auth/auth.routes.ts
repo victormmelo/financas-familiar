@@ -1,5 +1,10 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
-import { bootstrapSchema, inviteSchema, acceptInviteSchema } from './auth.schema.js'
+import {
+  bootstrapSchema,
+  inviteSchema,
+  acceptInviteSchema,
+  patchEntryPreferencesSchema,
+} from './auth.schema.js'
 import * as authService from './auth.service.js'
 import type { TokenPayload } from './auth.types.js'
 import { extractBearerToken, verifyKeycloakAccessToken } from '../../lib/keycloak-jwt.js'
@@ -29,6 +34,36 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
     const user = await authService.findAuthUserByKeycloakSub(claims.sub)
     return { data: user }
   })
+
+  fastify.patch(
+    '/me/entry-preferences',
+    { onRequest: [fastify.authenticate] },
+    async (request, reply) => {
+      const parsed = patchEntryPreferencesSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.status(400).send({
+          statusCode: 400,
+          message: 'Payload inválido',
+          details: parsed.error.flatten(),
+        })
+      }
+      const user = request.user as TokenPayload
+      try {
+        const entryPreferences = await authService.updateUserEntryPreferences(
+          user.sub,
+          user.familyId,
+          parsed.data,
+        )
+        return { data: { entryPreferences } }
+      } catch (err: unknown) {
+        const e = err as { statusCode?: number; message?: string }
+        if (e.statusCode) {
+          return reply.status(e.statusCode).send({ statusCode: e.statusCode, message: e.message })
+        }
+        throw err
+      }
+    },
+  )
 
   // POST /auth/bootstrap — primeiro acesso OIDC
   fastify.post(

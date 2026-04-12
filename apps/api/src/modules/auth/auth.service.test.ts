@@ -13,6 +13,13 @@ vi.mock('../../lib/prisma.js', () => ({
       findUnique: vi.fn(),
       create: vi.fn(),
       findUniqueOrThrow: vi.fn(),
+      update: vi.fn(),
+    },
+    account: {
+      findFirst: vi.fn(),
+    },
+    creditCard: {
+      findFirst: vi.fn(),
     },
     family: {
       create: vi.fn(),
@@ -34,7 +41,13 @@ vi.mock('../../jobs/email.queue.js', () => ({
 
 import { prisma } from '../../lib/prisma.js'
 import { emailQueue } from '../../jobs/email.queue.js'
-import { bootstrap, invite, acceptInvite, findAuthUserByKeycloakSub } from './auth.service.js'
+import {
+  bootstrap,
+  invite,
+  acceptInvite,
+  findAuthUserByKeycloakSub,
+  updateUserEntryPreferences,
+} from './auth.service.js'
 import type { KeycloakAccessClaims } from '../../lib/keycloak-claims.js'
 
 const kcClaims = (over: Partial<KeycloakAccessClaims> = {}): KeycloakAccessClaims =>
@@ -54,6 +67,21 @@ const mockUserRow = {
   keycloakSub: 'kc-sub-1',
   role: 'ADMIN',
   family: { id: 'family-1', name: 'Família Silva' },
+  entryExpenseSettlement: null as 'ACCOUNT' | 'CARD' | null,
+  entryDefaultAccountId: null as string | null,
+  entryDefaultCreditCardId: null as string | null,
+  entryDefaultAccount: null as {
+    id: string
+    name: string
+    isActive: boolean
+    familyId: string
+  } | null,
+  entryDefaultCreditCard: null as {
+    id: string
+    name: string
+    isActive: boolean
+    familyId: string
+  } | null,
 }
 
 beforeEach(() => {
@@ -210,5 +238,66 @@ describe('findAuthUserByKeycloakSub', () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUserRow as never)
     const u = await findAuthUserByKeycloakSub('kc-sub-1')
     expect(u?.id).toBe('user-1')
+    expect(u?.entryPreferences.accountId).toBeNull()
+  })
+})
+
+describe('updateUserEntryPreferences', () => {
+  it('rejeita liquidação CARD sem cartão', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...mockUserRow,
+      entryDefaultAccountId: 'acc-1',
+      entryDefaultCreditCardId: null,
+      entryExpenseSettlement: null,
+    } as never)
+    await expect(
+      updateUserEntryPreferences('user-1', 'family-1', { expenseSettlement: 'CARD' }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('atualiza e retorna preferências sanitizadas', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...mockUserRow,
+      entryDefaultAccountId: null,
+      entryDefaultCreditCardId: null,
+      entryExpenseSettlement: null,
+    } as never)
+    vi.mocked(prisma.account.findFirst).mockResolvedValue({
+      id: 'acc-1',
+      familyId: 'family-1',
+      isActive: true,
+    } as never)
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      familyId: 'family-1',
+      isActive: true,
+    } as never)
+    vi.mocked(prisma.user.update).mockResolvedValue({
+      ...mockUserRow,
+      entryDefaultAccountId: 'acc-1',
+      entryDefaultCreditCardId: 'card-1',
+      entryExpenseSettlement: 'CARD',
+      entryDefaultAccount: {
+        id: 'acc-1',
+        name: 'Conta A',
+        isActive: true,
+        familyId: 'family-1',
+      },
+      entryDefaultCreditCard: {
+        id: 'card-1',
+        name: 'Visa',
+        isActive: true,
+        familyId: 'family-1',
+      },
+    } as never)
+
+    const prefs = await updateUserEntryPreferences('user-1', 'family-1', {
+      accountId: 'acc-1',
+      creditCardId: 'card-1',
+      expenseSettlement: 'CARD',
+    })
+    expect(prefs.accountId).toBe('acc-1')
+    expect(prefs.creditCardId).toBe('card-1')
+    expect(prefs.expenseSettlement).toBe('CARD')
   })
 })

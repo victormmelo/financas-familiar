@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { emptyUserEntryPreferences, type UserEntryPreferences } from '@financas/shared-types'
 
 interface User {
   id: string
@@ -7,6 +8,7 @@ interface User {
   role: 'ADMIN' | 'MEMBER'
   familyId: string
   familyName?: string
+  entryPreferences: UserEntryPreferences
 }
 
 export type AuthBootstrapStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -31,7 +33,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   bootstrapStatus: 'idle',
   hasSessionToken: false,
   sessionSyncNonce: 0,
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setUser: (user) =>
+    set({
+      user: user
+        ? { ...user, entryPreferences: user.entryPreferences ?? emptyUserEntryPreferences() }
+        : null,
+      isAuthenticated: !!user,
+    }),
   setBootstrapStatus: (bootstrapStatus) => set({ bootstrapStatus }),
   setHasSessionToken: (hasSessionToken) => set({ hasSessionToken }),
   clearAuth: () =>

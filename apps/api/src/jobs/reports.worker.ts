@@ -14,6 +14,7 @@ async function generateDRE(familyId: string, params: ReportJobData['params']) {
     where: {
       familyId,
       status: 'CONFIRMED',
+      recognition: 'OPERATIONAL',
       date: { gte: start, lte: end },
     },
     include: { category: { select: { id: true, name: true, type: true } } },
@@ -62,7 +63,13 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
 
       const result = await prisma.transaction.groupBy({
         by: ['type'],
-        where: { familyId, status: 'CONFIRMED', date: { gte: start, lt: end } },
+        where: {
+          familyId,
+          status: 'CONFIRMED',
+          liquidated: true,
+          recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+          date: { gte: start, lt: end },
+        },
         _sum: { amount: true },
       })
 

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import type { TransactionRecognition } from '@financas/shared-types'
 
 export interface Transaction {
   id: string
@@ -14,6 +15,24 @@ export interface Transaction {
   account?: { id: string; name: string }
   categoryId?: string
   category?: { id: string; name: string; color?: string }
+  creditCardId?: string | null
+  creditCard?: { id: string; name: string } | null
+  recognition?: TransactionRecognition
+  creditCardInvoiceId?: string | null
+  transferId?: string | null
+  transfer?: {
+    id: string
+    fromAccountId: string
+    toAccountId: string
+    fromAccount?: { id: string; name: string }
+    toAccount?: { id: string; name: string }
+  } | null
+  creditCardInvoice?: {
+    id: string
+    referenceMonth: number
+    referenceYear: number
+    creditCard?: { id: string; name: string }
+  } | null
   createdById: string
   createdAt: string
   isRecurring: boolean
@@ -23,6 +42,7 @@ export interface Transaction {
   installmentIndex?: number | null
   installmentCount?: number | null
   nextOccurrences?: string[]
+  liquidated?: boolean
 }
 
 export interface TransactionFilters {
@@ -35,6 +55,7 @@ export interface TransactionFilters {
   startDate?: string
   endDate?: string
   isRecurring?: boolean
+  liquidated?: boolean
   enabled?: boolean
 }
 
@@ -96,7 +117,7 @@ export function useRecurringTemplates() {
 }
 
 export interface CreateTransactionPayload {
-  accountId: string
+  accountId?: string
   categoryId?: string
   type: string
   amount: number
@@ -108,6 +129,8 @@ export interface CreateTransactionPayload {
   isRecurring?: boolean
   rrule?: string
   installmentCount?: number
+  liquidated?: boolean
+  confirmed?: boolean
 }
 
 export function useCreateTransaction() {
@@ -117,6 +140,7 @@ export function useCreateTransaction() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards'] })
     },
   })
 }
@@ -124,11 +148,22 @@ export function useCreateTransaction() {
 export function useUpdateTransaction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; categoryId?: string | null; amount?: number; description?: string; notes?: string | null; date?: string }) =>
-      api.patch<Transaction>(`/transactions/${id}`, data),
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string
+      categoryId?: string | null
+      amount?: number
+      description?: string
+      notes?: string | null
+      date?: string
+      liquidated?: boolean
+    }) => api.patch<Transaction>(`/transactions/${id}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards'] })
     },
   })
 }

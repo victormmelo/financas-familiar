@@ -1,6 +1,7 @@
 import { Worker, Queue } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
 import { redisBullmq } from '../lib/redis.js'
+import { netCardSpendingInPeriod } from '../lib/credit-card-spending.js'
 
 interface InvoiceClosingJobData {
   targetDate?: string // ISO date — usa hoje se vazio
@@ -11,18 +12,10 @@ interface InvoiceClosingJobData {
  * Usa mês calendário (1º ao último dia do mês).
  */
 async function calculateInvoiceTotal(cardId: string, month: number, year: number): Promise<number> {
-  const result = await prisma.transaction.aggregate({
-    where: {
-      creditCardId: cardId,
-      status: { not: 'DELETED' },
-      date: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      },
-    },
-    _sum: { amount: true },
+  return netCardSpendingInPeriod(cardId, {
+    gte: new Date(year, month - 1, 1),
+    lt: new Date(year, month, 1),
   })
-  return result._sum.amount?.toNumber() ?? 0
 }
 
 /**

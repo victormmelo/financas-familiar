@@ -47,6 +47,7 @@ export function registerCreditCardHandlers(
     const cards = await prisma.creditCard.findMany({
       where: { familyId, isActive: true },
       include: {
+        defaultAccount: { select: { id: true, name: true } },
         invoices: {
           where: { referenceMonth: month, referenceYear: year },
           select: { id: true, totalAmount: true, status: true, paidAt: true },
@@ -62,6 +63,8 @@ export function registerCreditCardHandlers(
         limit: Number(card.limit),
         closingDay: card.closingDay,
         dueDay: card.dueDay,
+        defaultAccountId: card.defaultAccountId,
+        defaultAccount: card.defaultAccount,
         color: card.color,
         icon: card.icon,
         currentInvoice: card.invoices[0]

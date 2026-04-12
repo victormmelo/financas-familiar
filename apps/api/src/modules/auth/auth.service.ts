@@ -1,13 +1,54 @@
 import crypto from 'node:crypto'
-import type { Prisma } from '@prisma/client'
+import type { EntryExpenseSettlement, Prisma } from '@prisma/client'
+import {
+  emptyUserEntryPreferences,
+  type UserEntryPreferences,
+} from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { emailQueue } from '../../jobs/email.queue.js'
-import type { BootstrapInput, InviteInput, AcceptInviteInput } from './auth.schema.js'
+import type {
+  BootstrapInput,
+  InviteInput,
+  AcceptInviteInput,
+  PatchEntryPreferencesInput,
+} from './auth.schema.js'
 import type { AuthUser } from './auth.types.js'
 import type { KeycloakAccessClaims } from '../../lib/keycloak-claims.js'
 import { resolveEmailFromClaims } from '../../lib/keycloak-claims.js'
 
 const INVITE_EXPIRY_HOURS = 48
+
+const entryPrefInclude = {
+  entryDefaultAccount: { select: { id: true, name: true, isActive: true, familyId: true } },
+  entryDefaultCreditCard: { select: { id: true, name: true, isActive: true, familyId: true } },
+} as const
+
+function sanitizeEntryPreferencesFromUser(user: {
+  familyId: string
+  entryExpenseSettlement: EntryExpenseSettlement | null
+  entryDefaultAccount?: { id: string; name: string; isActive: boolean; familyId: string } | null
+  entryDefaultCreditCard?: { id: string; name: string; isActive: boolean; familyId: string } | null
+}): UserEntryPreferences {
+  const out = emptyUserEntryPreferences()
+  const acc = user.entryDefaultAccount ?? null
+  if (acc && acc.familyId === user.familyId && acc.isActive) {
+    out.accountId = acc.id
+    out.accountName = acc.name
+  }
+  const card = user.entryDefaultCreditCard ?? null
+  if (card && card.familyId === user.familyId && card.isActive) {
+    out.creditCardId = card.id
+    out.creditCardName = card.name
+  }
+  const rawSettle = user.entryExpenseSettlement
+  if (rawSettle === 'CARD' && !out.creditCardId) {
+    return out
+  }
+  if (rawSettle === 'ACCOUNT' || rawSettle === 'CARD') {
+    out.expenseSettlement = rawSettle
+  }
+  return out
+}
 
 export function buildAuthUser(user: {
   id: string
@@ -16,7 +57,22 @@ export function buildAuthUser(user: {
   role: string
   familyId: string
   family: { id: string; name: string }
+  entryExpenseSettlement?: EntryExpenseSettlement | null
+  entryDefaultAccount?: { id: string; name: string; isActive: boolean; familyId: string } | null
+  entryDefaultCreditCard?: { id: string; name: string; isActive: boolean; familyId: string } | null
 }): AuthUser {
+  const entryPreferences =
+    user.entryExpenseSettlement !== undefined ||
+    user.entryDefaultAccount !== undefined ||
+    user.entryDefaultCreditCard !== undefined
+      ? sanitizeEntryPreferencesFromUser({
+          familyId: user.familyId,
+          entryExpenseSettlement: user.entryExpenseSettlement ?? null,
+          entryDefaultAccount: user.entryDefaultAccount,
+          entryDefaultCreditCard: user.entryDefaultCreditCard,
+        })
+      : emptyUserEntryPreferences()
+
   return {
     id: user.id,
     name: user.name,
@@ -24,6 +80,7 @@ export function buildAuthUser(user: {
     role: user.role,
     familyId: user.familyId,
     family: { id: user.family.id, name: user.family.name },
+    entryPreferences,
   }
 }
 
@@ -188,8 +245,74 @@ export async function acceptInvite(
 export async function findAuthUserByKeycloakSub(keycloakSub: string): Promise<AuthUser | null> {
   const user = await prisma.user.findUnique({
     where: { keycloakSub },
-    include: { family: true },
+    include: { family: true, ...entryPrefInclude },
   })
   if (!user) return null
   return buildAuthUser(user)
+}
+
+/**
+ * Atualiza preferências de contexto de lançamento do usuário (conta/cartão/modo despesa).
+ */
+export async function updateUserEntryPreferences(
+  userId: string,
+  familyId: string,
+  input: PatchEntryPreferencesInput,
+): Promise<UserEntryPreferences> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: entryPrefInclude,
+  })
+  if (!user || user.familyId !== familyId) {
+    throw Object.assign(new Error('Usuário não encontrado'), { statusCode: 404 })
+  }
+
+  let nextAccountId =
+    input.accountId !== undefined ? input.accountId : user.entryDefaultAccountId
+  let nextCardId =
+    input.creditCardId !== undefined ? input.creditCardId : user.entryDefaultCreditCardId
+  let nextSettlement: EntryExpenseSettlement | null =
+    input.expenseSettlement !== undefined ? input.expenseSettlement : user.entryExpenseSettlement
+
+  if (typeof nextAccountId === 'string') {
+    const acc = await prisma.account.findFirst({
+      where: { id: nextAccountId, familyId, isActive: true },
+    })
+    if (!acc) {
+      throw Object.assign(new Error('Conta inválida ou inativa para esta família'), { statusCode: 400 })
+    }
+  }
+
+  if (typeof nextCardId === 'string') {
+    const card = await prisma.creditCard.findFirst({
+      where: { id: nextCardId, familyId, isActive: true },
+    })
+    if (!card) {
+      throw Object.assign(new Error('Cartão inválido ou inativo para esta família'), { statusCode: 400 })
+    }
+  }
+
+  if (nextSettlement === 'CARD' && !nextCardId) {
+    throw Object.assign(
+      new Error('Para liquidação no cartão, informe um cartão ativo'),
+      { statusCode: 400 },
+    )
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      entryDefaultAccountId: nextAccountId,
+      entryDefaultCreditCardId: nextCardId,
+      entryExpenseSettlement: nextSettlement,
+    },
+    include: { family: true, ...entryPrefInclude },
+  })
+
+  return sanitizeEntryPreferencesFromUser({
+    familyId: updated.familyId,
+    entryExpenseSettlement: updated.entryExpenseSettlement,
+    entryDefaultAccount: updated.entryDefaultAccount,
+    entryDefaultCreditCard: updated.entryDefaultCreditCard,
+  })
 }

@@ -50,6 +50,7 @@ export function registerBudgetHandlers(
             categoryId: budget.categoryId,
             type: 'EXPENSE',
             status: 'CONFIRMED',
+            recognition: 'OPERATIONAL',
             date: { gte: startOfMonth, lte: endOfMonth },
           },
           _sum: { amount: true },

@@ -6,6 +6,7 @@ export interface Account {
   name: string
   type: 'CHECKING' | 'SAVINGS' | 'JOINT' | 'INVESTMENT' | 'CASH'
   balance: number
+  liquidatedBalance: number
   initialBalance: number
   color?: string
   icon?: string
@@ -24,6 +25,10 @@ function normalizeAccount(a: Account): Account {
   return {
     ...a,
     balance: typeof a.balance === 'number' && !Number.isNaN(a.balance) ? a.balance : Number(a.balance) || 0,
+    liquidatedBalance:
+      typeof a.liquidatedBalance === 'number' && !Number.isNaN(a.liquidatedBalance)
+        ? a.liquidatedBalance
+        : Number(a.liquidatedBalance) || 0,
     initialBalance:
       typeof a.initialBalance === 'number' && !Number.isNaN(a.initialBalance)
         ? a.initialBalance

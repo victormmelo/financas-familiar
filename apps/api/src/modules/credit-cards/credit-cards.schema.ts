@@ -5,6 +5,8 @@ export const createCreditCardSchema = z.object({
   limit: z.number().positive('Limite deve ser positivo'),
   closingDay: z.number().int().min(1).max(31, 'Dia de fechamento inválido (1-31)'),
   dueDay: z.number().int().min(1).max(31, 'Dia de vencimento inválido (1-31)'),
+  /** Conta âncora para lançamentos na fatura deste cartão. */
+  defaultAccountId: z.string().uuid('ID de conta inválido'),
   color: z.string().optional(),
   icon: z.string().optional(),
 })
@@ -14,6 +16,7 @@ export const updateCreditCardSchema = z.object({
   limit: z.number().positive().optional(),
   closingDay: z.number().int().min(1).max(31).optional(),
   dueDay: z.number().int().min(1).max(31).optional(),
+  defaultAccountId: z.string().uuid().optional().nullable(),
   color: z.string().optional().nullable(),
   icon: z.string().optional().nullable(),
   isActive: z.boolean().optional(),

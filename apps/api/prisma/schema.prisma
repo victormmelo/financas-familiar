@@ -27,6 +27,13 @@ enum TransactionType {
   EXPENSE
 }
 
+/** Classificação para DRE / fluxo de caixa agregado (pernas de transferência e pagamento de fatura). */
+enum TransactionRecognition {
+  OPERATIONAL
+  TRANSFER_LEG
+  INVOICE_PAYMENT
+}
+
 enum TransactionStatus {
   DRAFT
   CONFIRMED
@@ -88,6 +95,12 @@ enum IntegrationStatus {
   INACTIVE
 }
 
+/** Preferência de UI: despesa à vista na conta vs na fatura do cartão. */
+enum EntryExpenseSettlement {
+  ACCOUNT
+  CARD
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model Family {
@@ -121,6 +134,9 @@ model User {
   passwordHash  String?  @map("password_hash")
   keycloakSub   String?  @unique @map("keycloak_sub")
   role          Role     @default(MEMBER)
+  entryDefaultAccountId    String?                  @map("entry_default_account_id")
+  entryDefaultCreditCardId String?                  @map("entry_default_credit_card_id")
+  entryExpenseSettlement   EntryExpenseSettlement?  @map("entry_expense_settlement")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -129,7 +145,11 @@ model User {
   invitesSent  FamilyInvite[] @relation("InvitedBy")
   integrationClientsCreated IntegrationClient[]
   reconciliationSessions ReconciliationSession[]
+  entryDefaultAccount    Account?    @relation("UserEntryDefaultAccount", fields: [entryDefaultAccountId], references: [id])
+  entryDefaultCreditCard CreditCard? @relation("UserEntryDefaultCreditCard", fields: [entryDefaultCreditCardId], references: [id])
 
+  @@index([entryDefaultAccountId])
+  @@index([entryDefaultCreditCardId])
   @@map("users")
 }
 
@@ -167,6 +187,8 @@ model Account {
   transfersTo   Transfer[]   @relation("ToAccount")
   goals         Goal[]
   creditCardPayments         CreditCardInvoice[]
+  creditCardsAsDefault       CreditCard[]       @relation("CreditCardDefaultAccount")
+  usersEntryDefault          User[]             @relation("UserEntryDefaultAccount")
   reconciliationSessions     ReconciliationSession[]
   statementItems             StatementItem[]
 
@@ -209,6 +231,8 @@ model Transaction {
   source       DraftSource       @default(MANUAL)
   transferId   String?           @map("transfer_id")
   creditCardId String?           @map("credit_card_id")
+  recognition  TransactionRecognition @default(OPERATIONAL) @map("recognition")
+  creditCardInvoiceId String?  @map("credit_card_invoice_id")
   isRecurring         Boolean           @default(false) @map("is_recurring")
   rrule               String?
   recurringTemplateId String?           @map("recurring_template_id")
@@ -216,6 +240,7 @@ model Transaction {
   installmentIndex    Int?              @map("installment_index")
   installmentCount    Int?              @map("installment_count")
   confirmedAt         DateTime?         @map("confirmed_at")
+  liquidated          Boolean           @default(false)
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
 
@@ -225,9 +250,11 @@ model Transaction {
   createdBy  User        @relation(fields: [createdById], references: [id])
   transfer   Transfer?   @relation(fields: [transferId], references: [id])
   creditCard CreditCard? @relation(fields: [creditCardId], references: [id])
+  creditCardInvoice CreditCardInvoice? @relation(fields: [creditCardInvoiceId], references: [id])
   draft      TransactionDraft?
   statementItems StatementItem[]
 
+  @@index([creditCardInvoiceId])
   @@map("transactions")
 }
 
@@ -269,16 +296,20 @@ model CreditCard {
   limit          Decimal  @db.Decimal(15, 2)
   closingDay     Int      @map("closing_day")
   dueDay         Int      @map("due_day")
+  defaultAccountId String? @map("default_account_id")
   color          String?
   icon           String?
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  family       Family             @relation(fields: [familyId], references: [id])
-  transactions Transaction[]
-  invoices     CreditCardInvoice[]
+  family         Family             @relation(fields: [familyId], references: [id])
+  defaultAccount Account?           @relation("CreditCardDefaultAccount", fields: [defaultAccountId], references: [id])
+  transactions   Transaction[]
+  invoices       CreditCardInvoice[]
+  usersEntryDefault User[]         @relation("UserEntryDefaultCreditCard")
 
+  @@index([defaultAccountId])
   @@map("credit_cards")
 }
 
@@ -296,6 +327,7 @@ model CreditCardInvoice {
 
   creditCard      CreditCard @relation(fields: [creditCardId], references: [id])
   paidFromAccount Account?   @relation(fields: [paidFromAccountId], references: [id])
+  paymentTransactions Transaction[]
 
   @@unique([creditCardId, referenceMonth, referenceYear])
   @@index([status])

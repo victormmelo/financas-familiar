@@ -7,6 +7,8 @@ export interface CreditCard {
   limit: number
   closingDay: number
   dueDay: number
+  defaultAccountId: string | null
+  defaultAccount?: { id: string; name: string } | null
   color?: string
   icon?: string
   isActive: boolean
@@ -65,8 +67,15 @@ export function useCreditCardInvoice(cardId: string, invoiceId: string) {
 export function useCreateCreditCard() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string; limit: number; closingDay: number; dueDay: number; color?: string; icon?: string }) =>
-      api.post<CreditCard>('/credit-cards', data),
+    mutationFn: (data: {
+      name: string
+      limit: number
+      closingDay: number
+      dueDay: number
+      defaultAccountId: string
+      color?: string
+      icon?: string
+    }) => api.post<CreditCard>('/credit-cards', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['credit-cards'] }),
   })
 }
@@ -74,8 +83,20 @@ export function useCreateCreditCard() {
 export function useUpdateCreditCard() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; limit?: number; closingDay?: number; dueDay?: number; color?: string; icon?: string; isActive?: boolean }) =>
-      api.patch<CreditCard>(`/credit-cards/${id}`, data),
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string
+      name?: string
+      limit?: number
+      closingDay?: number
+      dueDay?: number
+      defaultAccountId?: string | null
+      color?: string
+      icon?: string
+      isActive?: boolean
+    }) => api.patch<CreditCard>(`/credit-cards/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['credit-cards'] }),
   })
 }

@@ -155,7 +155,9 @@ export default function CartoesPage() {
           )}
 
           {/* Faturas */}
-          {expandedCard === card.id && <InvoiceList cardId={card.id} />}
+          {expandedCard === card.id && (
+            <InvoiceList cardId={card.id} defaultAccountId={card.defaultAccountId} />
+          )}
         </CardContent>
       </Card>
     )
@@ -251,7 +253,7 @@ const payInvoiceFormSchema = z.object({
 
 type PayInvoiceFormData = z.infer<typeof payInvoiceFormSchema>
 
-function InvoiceList({ cardId }: { cardId: string }) {
+function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAccountId?: string | null }) {
   const { data, isLoading } = useCreditCardInvoices(cardId)
   const payInvoice = usePayInvoice()
   const { data: accounts } = useAccounts()
@@ -272,8 +274,13 @@ function InvoiceList({ cardId }: { cardId: string }) {
   })
 
   useEffect(() => {
-    if (payDialog) reset({ accountId: '', amount: undefined })
-  }, [payDialog, reset])
+    if (payDialog) {
+      reset({
+        accountId: defaultAccountId ?? '',
+        amount: undefined,
+      })
+    }
+  }, [payDialog, reset, defaultAccountId])
 
   async function onPayConfirm(data: PayInvoiceFormData) {
     if (!payDialog) return

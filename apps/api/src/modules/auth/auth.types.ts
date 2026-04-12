@@ -1,3 +1,5 @@
+import type { UserEntryPreferences } from '@financas/shared-types'
+
 export interface TokenPayload {
   sub: string // userId interno (Prisma)
   familyId: string
@@ -14,4 +16,5 @@ export interface AuthUser {
     id: string
     name: string
   }
+  entryPreferences: UserEntryPreferences
 }

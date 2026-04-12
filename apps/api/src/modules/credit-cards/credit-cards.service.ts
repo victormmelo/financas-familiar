@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js'
+import { netCardSpendingInPeriod } from '../../lib/credit-card-spending.js'
 import type { Prisma } from '@prisma/client'
 import type {
   CreateCreditCardInput,
@@ -16,24 +17,21 @@ function calculateDueDate(referenceMonth: number, referenceYear: number, dueDay:
 }
 
 async function getInvoiceSpending(cardId: string, month: number, year: number): Promise<number> {
-  const result = await prisma.transaction.aggregate({
-    where: {
-      creditCardId: cardId,
-      status: { not: 'DELETED' },
-      date: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      },
-    },
-    _sum: { amount: true },
+  return netCardSpendingInPeriod(cardId, {
+    gte: new Date(year, month - 1, 1),
+    lt: new Date(year, month, 1),
   })
-  return result._sum.amount?.toNumber() ?? 0
 }
+
+const cardDefaultAccountInclude = {
+  defaultAccount: { select: { id: true, name: true } },
+} as const
 
 export async function listCreditCards(familyId: string) {
   const cards = await prisma.creditCard.findMany({
     where: { familyId },
     orderBy: { createdAt: 'asc' },
+    include: cardDefaultAccountInclude,
   })
 
   const now = new Date()
@@ -49,7 +47,10 @@ export async function listCreditCards(familyId: string) {
 }
 
 export async function getCreditCard(familyId: string, cardId: string) {
-  const card = await prisma.creditCard.findFirst({ where: { id: cardId, familyId } })
+  const card = await prisma.creditCard.findFirst({
+    where: { id: cardId, familyId },
+    include: cardDefaultAccountInclude,
+  })
   if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
 
   const now = new Date()
@@ -58,6 +59,11 @@ export async function getCreditCard(familyId: string, cardId: string) {
 }
 
 export async function createCreditCard(familyId: string, input: CreateCreditCardInput) {
+  const account = await prisma.account.findFirst({
+    where: { id: input.defaultAccountId, familyId },
+  })
+  if (!account) throw Object.assign(new Error('Conta padrão não encontrada'), { statusCode: 404 })
+
   return prisma.creditCard.create({
     data: {
       familyId,
@@ -65,9 +71,11 @@ export async function createCreditCard(familyId: string, input: CreateCreditCard
       limit: input.limit,
       closingDay: input.closingDay,
       dueDay: input.dueDay,
+      defaultAccountId: input.defaultAccountId,
       color: input.color,
       icon: input.icon,
     },
+    include: cardDefaultAccountInclude,
   })
 }
 
@@ -79,6 +87,11 @@ export async function updateCreditCard(
   const card = await prisma.creditCard.findFirst({ where: { id: cardId, familyId } })
   if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
 
+  if (input.defaultAccountId !== undefined && input.defaultAccountId !== null) {
+    const acc = await prisma.account.findFirst({ where: { id: input.defaultAccountId, familyId } })
+    if (!acc) throw Object.assign(new Error('Conta padrão não encontrada'), { statusCode: 404 })
+  }
+
   return prisma.creditCard.update({
     where: { id: cardId },
     data: {
@@ -86,10 +99,12 @@ export async function updateCreditCard(
       ...(input.limit !== undefined && { limit: input.limit }),
       ...(input.closingDay !== undefined && { closingDay: input.closingDay }),
       ...(input.dueDay !== undefined && { dueDay: input.dueDay }),
+      ...(input.defaultAccountId !== undefined && { defaultAccountId: input.defaultAccountId }),
       ...(input.color !== undefined && { color: input.color }),
       ...(input.icon !== undefined && { icon: input.icon }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
     },
+    include: cardDefaultAccountInclude,
   })
 }
 
@@ -259,7 +274,10 @@ export async function payInvoice(
         description: `Pagamento fatura ${card.name} ${String(invoice.referenceMonth).padStart(2, '0')}/${invoice.referenceYear}`,
         date: new Date(),
         source: 'MANUAL',
+        recognition: 'INVOICE_PAYMENT',
+        creditCardInvoiceId: invoiceId,
         confirmedAt: new Date(),
+        liquidated: true,
       },
     })
 

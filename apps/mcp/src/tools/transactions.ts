@@ -4,16 +4,22 @@ import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 
-const createTransactionInput = z.object({
-  accountId: z.string().uuid(),
-  type: z.enum(['INCOME', 'EXPENSE']),
-  amount: z.number().positive(),
-  description: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato: YYYY-MM-DD'),
-  categoryId: z.string().uuid().optional(),
-  notes: z.string().optional(),
-  creditCardId: z.string().uuid().optional(),
-})
+const createTransactionInput = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    type: z.enum(['INCOME', 'EXPENSE']),
+    amount: z.number().positive(),
+    description: z.string().min(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato: YYYY-MM-DD'),
+    categoryId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+    creditCardId: z.string().uuid().optional(),
+    liquidated: z.boolean().optional(),
+  })
+  .refine((d) => d.creditCardId != null || d.accountId != null, {
+    message: 'Informe accountId ou creditCardId',
+    path: ['accountId'],
+  })
 
 const listTransactionsInput = z.object({
   startDate: z.string().optional(),
@@ -22,6 +28,7 @@ const listTransactionsInput = z.object({
   categoryId: z.string().uuid().optional(),
   type: z.enum(['INCOME', 'EXPENSE']).optional(),
   status: z.enum(['DRAFT', 'CONFIRMED', 'DELETED']).optional(),
+  liquidated: z.coerce.boolean().optional(),
   limit: z.number().int().min(1).max(100).default(50),
   page: z.number().int().min(1).default(1),
 })
@@ -57,6 +64,7 @@ export const transactionToolDefinitions = [
         },
         limit: { type: 'number', description: 'Máximo de resultados (padrão: 50)' },
         page: { type: 'number', description: 'Página (padrão: 1)' },
+        liquidated: { type: 'boolean', description: 'Filtrar por liquidado (caixa)' },
       },
     },
   },
@@ -77,9 +85,12 @@ export const transactionToolDefinitions = [
       'Cria uma nova transação como DRAFT (rascunho). Use para registrar receitas ou despesas. O usuário pode confirmar depois.',
     inputSchema: {
       type: 'object' as const,
-      required: ['accountId', 'type', 'amount', 'description', 'date'],
+      required: ['type', 'amount', 'description', 'date'],
       properties: {
-        accountId: { type: 'string', description: 'ID da conta bancária' },
+        accountId: {
+          type: 'string',
+          description: 'ID da conta bancária (opcional se creditCardId e o cartão tiver conta padrão)',
+        },
         type: { type: 'string', enum: ['INCOME', 'EXPENSE'], description: 'INCOME para receita, EXPENSE para despesa' },
         amount: { type: 'number', description: 'Valor positivo em reais' },
         description: { type: 'string', description: 'Descrição do lançamento' },
@@ -87,6 +98,7 @@ export const transactionToolDefinitions = [
         categoryId: { type: 'string', description: 'ID da categoria (opcional)' },
         notes: { type: 'string', description: 'Observações adicionais (opcional)' },
         creditCardId: { type: 'string', description: 'ID do cartão de crédito (se for gasto no cartão)' },
+        liquidated: { type: 'boolean', description: 'Padrão false; true se já liquidou no caixa' },
       },
     },
   },
@@ -125,6 +137,7 @@ export const transactionToolDefinitions = [
         date: { type: 'string', description: 'Nova data (YYYY-MM-DD)' },
         categoryId: { type: 'string', description: 'Novo ID de categoria' },
         notes: { type: 'string' },
+        liquidated: { type: 'boolean' },
       },
     },
   },
@@ -180,6 +193,7 @@ export const transactionToolDefinitions = [
               categoryId: { type: 'string' },
               notes: { type: 'string' },
               creditCardId: { type: 'string' },
+              liquidated: { type: 'boolean' },
             },
           },
         },
@@ -197,7 +211,7 @@ export function registerTransactionHandlers(
 
   toolHandlerMap.set('list_transactions', async (args) => {
     const input = listTransactionsInput.parse(args)
-    const { page, limit, accountId, categoryId, type, status, startDate, endDate } = input
+    const { page, limit, accountId, categoryId, type, status, startDate, endDate, liquidated } = input
     const skip = (page - 1) * limit
 
     const where = {
@@ -206,6 +220,7 @@ export function registerTransactionHandlers(
       ...(categoryId && { categoryId }),
       ...(type && { type }),
       ...(status ? { status } : { status: { not: 'DELETED' as const } }),
+      ...(liquidated !== undefined && { liquidated }),
       ...(startDate || endDate
         ? {
             date: {
@@ -223,6 +238,24 @@ export function registerTransactionHandlers(
           account: { select: { id: true, name: true } },
           category: { select: { id: true, name: true } },
           createdBy: { select: { id: true, name: true } },
+          creditCard: { select: { id: true, name: true } },
+          transfer: {
+            select: {
+              id: true,
+              fromAccountId: true,
+              toAccountId: true,
+              fromAccount: { select: { id: true, name: true } },
+              toAccount: { select: { id: true, name: true } },
+            },
+          },
+          creditCardInvoice: {
+            select: {
+              id: true,
+              referenceMonth: true,
+              referenceYear: true,
+              creditCard: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         skip,
@@ -248,6 +281,24 @@ export function registerTransactionHandlers(
         account: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true } },
+        creditCard: { select: { id: true, name: true } },
+        transfer: {
+          select: {
+            id: true,
+            fromAccountId: true,
+            toAccountId: true,
+            fromAccount: { select: { id: true, name: true } },
+            toAccount: { select: { id: true, name: true } },
+          },
+        },
+        creditCardInvoice: {
+          select: {
+            id: true,
+            referenceMonth: true,
+            referenceYear: true,
+            creditCard: { select: { id: true, name: true } },
+          },
+        },
         draft: true,
       },
     })
@@ -258,7 +309,20 @@ export function registerTransactionHandlers(
   toolHandlerMap.set('create_transaction', async (args) => {
     const input = createTransactionInput.parse(args)
 
-    const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
+    let resolvedAccountId = input.accountId
+    if (input.creditCardId) {
+      const card = await prisma.creditCard.findFirst({ where: { id: input.creditCardId, familyId } })
+      if (!card) throw new Error('Cartão não encontrado')
+      if (!resolvedAccountId) {
+        if (!card.defaultAccountId) {
+          throw new Error('Cartão sem conta padrão; informe accountId ou cadastre a conta no cartão.')
+        }
+        resolvedAccountId = card.defaultAccountId
+      }
+    }
+    if (!resolvedAccountId) throw new Error('Conta obrigatória')
+
+    const account = await prisma.account.findFirst({ where: { id: resolvedAccountId, familyId } })
     if (!account) throw new Error('Conta não encontrada')
 
     if (input.categoryId) {
@@ -269,7 +333,7 @@ export function registerTransactionHandlers(
     const t = await prisma.transaction.create({
       data: {
         familyId,
-        accountId: input.accountId,
+        accountId: resolvedAccountId,
         categoryId: input.categoryId,
         createdById: userId,
         type: input.type,
@@ -280,10 +344,12 @@ export function registerTransactionHandlers(
         date: new Date(input.date),
         source: 'MANUAL',
         creditCardId: input.creditCardId,
+        liquidated: input.liquidated ?? false,
       },
       include: {
         account: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
+        creditCard: { select: { id: true, name: true } },
       },
     })
     return { ...t, amount: Number(t.amount) }
@@ -321,6 +387,7 @@ export function registerTransactionHandlers(
         date: z.string().optional(),
         categoryId: z.string().nullable().optional(),
         notes: z.string().nullable().optional(),
+        liquidated: z.boolean().optional(),
       })
       .parse(args)
 
@@ -337,6 +404,7 @@ export function registerTransactionHandlers(
         ...(updates.date !== undefined && { date: new Date(updates.date) }),
         ...(updates.categoryId !== undefined && { categoryId: updates.categoryId }),
         ...(updates.notes !== undefined && { notes: updates.notes }),
+        ...(updates.liquidated !== undefined && { liquidated: updates.liquidated }),
       },
       include: {
         account: { select: { id: true, name: true } },
@@ -396,12 +464,27 @@ export function registerTransactionHandlers(
       .object({ transactions: z.array(createTransactionInput) })
       .parse(args)
 
-    const created = await prisma.$transaction(
-      transactions.map((input) =>
-        prisma.transaction.create({
+    const created = await prisma.$transaction(async (tx) => {
+      const out: { id: string }[] = []
+      for (const input of transactions) {
+        let resolvedAccountId = input.accountId
+        if (input.creditCardId) {
+          const card = await tx.creditCard.findFirst({ where: { id: input.creditCardId, familyId } })
+          if (!card) throw new Error('Cartão não encontrado')
+          if (!resolvedAccountId) {
+            if (!card.defaultAccountId) {
+              throw new Error('Cartão sem conta padrão; informe accountId ou cadastre a conta no cartão.')
+            }
+            resolvedAccountId = card.defaultAccountId
+          }
+        }
+        if (!resolvedAccountId) throw new Error('Conta obrigatória')
+        const account = await tx.account.findFirst({ where: { id: resolvedAccountId, familyId } })
+        if (!account) throw new Error('Conta não encontrada')
+        const row = await tx.transaction.create({
           data: {
             familyId,
-            accountId: input.accountId,
+            accountId: resolvedAccountId,
             categoryId: input.categoryId,
             createdById: userId,
             type: input.type,
@@ -412,10 +495,13 @@ export function registerTransactionHandlers(
             date: new Date(input.date),
             source: 'MANUAL',
             creditCardId: input.creditCardId,
+            liquidated: input.liquidated ?? false,
           },
-        }),
-      ),
-    )
+        })
+        out.push(row)
+      }
+      return out
+    })
 
     return { created: created.length, ids: created.map((t: (typeof created)[number]) => t.id) }
   })

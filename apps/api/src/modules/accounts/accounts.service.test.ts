@@ -24,6 +24,8 @@ import {
   getAccount,
   calculateBalance,
   calculateBalanceAsOf,
+  calculateLiquidatedBalance,
+  calculateLiquidatedBalanceAsOf,
   endOfMonthInclusiveUtc,
   createAccount,
   updateAccount,
@@ -84,6 +86,29 @@ describe('calculateBalance', () => {
   })
 })
 
+describe('calculateLiquidatedBalance', () => {
+  it('deve usar transações liquidated e não DELETED', async () => {
+    vi.mocked(prisma.account.findUniqueOrThrow).mockResolvedValue(mockAccount)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([
+      { type: 'INCOME', _sum: { amount: new Decimal(50) } },
+    ] as never)
+
+    const balance = await calculateLiquidatedBalance('acc-1')
+
+    expect(balance).toBe(1050)
+    expect(prisma.transaction.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountId: 'acc-1',
+          status: { not: 'DELETED' },
+          liquidated: true,
+          creditCardId: null,
+        }),
+      }),
+    )
+  })
+})
+
 describe('calculateBalanceAsOf', () => {
   it('deve considerar só transações com data <= fim do mês', async () => {
     vi.mocked(prisma.account.findUniqueOrThrow).mockResolvedValue(mockAccount)
@@ -108,6 +133,28 @@ describe('calculateBalanceAsOf', () => {
   })
 })
 
+describe('calculateLiquidatedBalanceAsOf', () => {
+  it('deve filtrar por data inclusive no saldo liquidado', async () => {
+    vi.mocked(prisma.account.findUniqueOrThrow).mockResolvedValue(mockAccount)
+    const asOf = endOfMonthInclusiveUtc(2026, 4)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([])
+
+    await calculateLiquidatedBalanceAsOf('acc-1', asOf)
+
+    expect(prisma.transaction.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          accountId: 'acc-1',
+          status: { not: 'DELETED' },
+          liquidated: true,
+          creditCardId: null,
+          date: { lte: asOf },
+        }),
+      }),
+    )
+  })
+})
+
 describe('listAccounts', () => {
   it('deve retornar contas com saldo calculado', async () => {
     vi.mocked(prisma.account.findMany).mockResolvedValue([mockAccount])
@@ -118,6 +165,7 @@ describe('listAccounts', () => {
 
     expect(accounts).toHaveLength(1)
     expect(accounts[0].balance).toBe(1000)
+    expect(accounts[0].liquidatedBalance).toBe(1000)
     expect(prisma.account.findMany).toHaveBeenCalledWith({
       where: { familyId: 'family-1' },
       orderBy: { createdAt: 'asc' },
@@ -144,6 +192,7 @@ describe('listAccounts', () => {
     expect(accounts).toHaveLength(1)
     expect(accounts[0].id).toBe('acc-old')
     expect(accounts[0].balance).toBe(1000)
+    expect(accounts[0].liquidatedBalance).toBe(1000)
   })
 })
 
@@ -157,6 +206,7 @@ describe('getAccount', () => {
 
     expect(account.id).toBe('acc-1')
     expect(account.balance).toBe(1000)
+    expect(account.liquidatedBalance).toBe(1000)
   })
 
   it('deve lançar 404 quando conta não existe ou não pertence à família', async () => {

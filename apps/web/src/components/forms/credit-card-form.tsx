@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -8,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { useCreateCreditCard, useUpdateCreditCard, type CreditCard } from '@/hooks/use-credit-cards'
+import { useAccounts } from '@/hooks/use-accounts'
+import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { normalizeReaisForApi } from '@financas/shared-types'
@@ -19,6 +22,7 @@ const schema = z.object({
     .positive('Limite obrigatório'),
   closingDay: z.coerce.number().int().min(1).max(31),
   dueDay: z.coerce.number().int().min(1).max(31),
+  defaultAccountId: z.string().min(1, 'Selecione a conta padrão'),
   color: z.string().optional(),
 })
 
@@ -34,6 +38,9 @@ export function CreditCardForm({ open, onClose, card }: Props) {
   const create = useCreateCreditCard()
   const update = useUpdateCreditCard()
   const { toast } = useToast()
+  const { data: accounts } = useAccounts()
+
+  const selectableAccounts = (accounts ?? []).filter((a) => a.isActive || (card && a.id === card.defaultAccountId))
 
   const {
     register,
@@ -44,9 +51,32 @@ export function CreditCardForm({ open, onClose, card }: Props) {
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: card
-      ? { name: card.name, limit: card.limit, closingDay: card.closingDay, dueDay: card.dueDay, color: card.color }
-      : { closingDay: 1, dueDay: 10 },
+      ? {
+          name: card.name,
+          limit: card.limit,
+          closingDay: card.closingDay,
+          dueDay: card.dueDay,
+          defaultAccountId: card.defaultAccountId ?? '',
+          color: card.color ?? undefined,
+        }
+      : { closingDay: 1, dueDay: 10, defaultAccountId: '' },
   })
+
+  useEffect(() => {
+    if (!open) return
+    if (card) {
+      reset({
+        name: card.name,
+        limit: card.limit,
+        closingDay: card.closingDay,
+        dueDay: card.dueDay,
+        defaultAccountId: card.defaultAccountId ?? '',
+        color: card.color ?? undefined,
+      })
+    } else {
+      reset({ closingDay: 1, dueDay: 10, defaultAccountId: '' })
+    }
+  }, [open, card, reset])
 
   async function onSubmit(data: FormData) {
     try {
@@ -108,6 +138,24 @@ export function CreditCardForm({ open, onClose, card }: Props) {
               <Label>Dia de Vencimento</Label>
               <Input type="number" min="1" max="31" error={errors.dueDay?.message} {...register('dueDay')} />
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="card-form-default-account">Conta padrão (lançamentos na fatura)</Label>
+            <Select
+              id="card-form-default-account"
+              error={errors.defaultAccountId?.message}
+              {...register('defaultAccountId')}
+            >
+              <option value="">Selecione uma conta</option>
+              {selectableAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[10px] text-muted-foreground">
+              Usada para ancorar compras no cartão; você pode pagar a fatura de outra conta.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Cor</Label>

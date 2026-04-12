@@ -3,6 +3,8 @@
 export type Role = 'ADMIN' | 'MEMBER'
 export type AccountType = 'CHECKING' | 'SAVINGS' | 'JOINT' | 'INVESTMENT' | 'CASH'
 export type TransactionType = 'INCOME' | 'EXPENSE'
+
+export type TransactionRecognition = 'OPERATIONAL' | 'TRANSFER_LEG' | 'INVOICE_PAYMENT'
 export type TransactionStatus = 'DRAFT' | 'CONFIRMED' | 'DELETED'
 export type DraftSource =
   | 'MANUAL'
@@ -40,6 +42,35 @@ export interface AuthUser {
   email: string
   role: Role
   familyId: string
+}
+
+/** Preferência de UI para despesa: conta à vista vs fatura do cartão. */
+export type EntryExpenseSettlementPref = 'ACCOUNT' | 'CARD'
+
+/** Contexto de lançamento persistido por usuário (sincronizado entre dispositivos). */
+export interface UserEntryPreferences {
+  accountId: string | null
+  accountName: string | null
+  creditCardId: string | null
+  creditCardName: string | null
+  expenseSettlement: EntryExpenseSettlementPref | null
+}
+
+export function emptyUserEntryPreferences(): UserEntryPreferences {
+  return {
+    accountId: null,
+    accountName: null,
+    creditCardId: null,
+    creditCardName: null,
+    expenseSettlement: null,
+  }
+}
+
+/** Body de PATCH /auth/me/entry-preferences — omitir campo = não alterar; null = limpar. */
+export interface PatchUserEntryPreferencesInput {
+  accountId?: string | null
+  creditCardId?: string | null
+  expenseSettlement?: EntryExpenseSettlementPref | null
 }
 
 export interface AuthTokens {
@@ -98,6 +129,8 @@ export interface Account {
   type: AccountType
   initialBalance: number
   balance: number
+  /** Saldo em caixa: só lançamentos `liquidated` na conta (exclui cartão). */
+  liquidatedBalance: number
   color: string | null
   icon: string | null
   isActive: boolean
@@ -162,6 +195,8 @@ export interface Transaction {
   source: DraftSource
   transferId: string | null
   creditCardId: string | null
+  recognition: TransactionRecognition
+  creditCardInvoiceId: string | null
   isRecurring: boolean
   rrule: string | null
   recurringTemplateId: string | null
@@ -169,17 +204,33 @@ export interface Transaction {
   installmentIndex: number | null
   installmentCount: number | null
   confirmedAt: string | null
+  liquidated: boolean
   createdAt: string
   updatedAt: string
   account?: { id: string; name: string; color: string | null }
   category?: { id: string; name: string; type: CategoryType } | null
   createdBy?: { id: string; name: string }
+  creditCard?: { id: string; name: string } | null
+  transfer?: {
+    id: string
+    fromAccountId: string
+    toAccountId: string
+    fromAccount?: { id: string; name: string }
+    toAccount?: { id: string; name: string }
+  } | null
+  creditCardInvoice?: {
+    id: string
+    referenceMonth: number
+    referenceYear: number
+    creditCard?: { id: string; name: string }
+  } | null
   /** Próximas ocorrências (apenas em templates recorrentes) */
   nextOccurrences?: string[]
 }
 
 export interface CreateTransactionInput {
-  accountId: string
+  /** Obrigatório exceto quando há `creditCardId` e o cartão tem conta padrão. */
+  accountId?: string
   categoryId?: string
   type: TransactionType
   amount: number
@@ -192,6 +243,9 @@ export interface CreateTransactionInput {
   rrule?: string
   /** Número de parcelas (2-360). Mutuamente exclusivo com isRecurring. */
   installmentCount?: number
+  liquidated?: boolean
+  /** Cria como confirmada (saldo previsto / fluxo “confirmado”). */
+  confirmed?: boolean
 }
 
 export interface InstallmentCreationResult {
@@ -209,6 +263,7 @@ export interface UpdateTransactionInput {
   description?: string
   notes?: string
   date?: string
+  liquidated?: boolean
 }
 
 export interface TransactionFilters {
@@ -218,6 +273,7 @@ export interface TransactionFilters {
   categoryId?: string
   startDate?: string
   endDate?: string
+  liquidated?: boolean
   cursor?: string
   limit?: number
 }
@@ -255,6 +311,8 @@ export interface CreditCard {
   limit: number
   closingDay: number
   dueDay: number
+  defaultAccountId: string | null
+  defaultAccount?: { id: string; name: string } | null
   color: string | null
   icon: string | null
   isActive: boolean
@@ -267,6 +325,7 @@ export interface CreateCreditCardInput {
   limit: number
   closingDay: number
   dueDay: number
+  defaultAccountId: string
   color?: string
   icon?: string
 }

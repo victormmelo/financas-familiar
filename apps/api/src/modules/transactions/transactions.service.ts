@@ -10,8 +10,44 @@ import type {
   ListTransactionsInput,
 } from './transactions.schema.js'
 
+function statusForNewTransaction(confirmed: boolean | undefined) {
+  return confirmed
+    ? ({ status: 'CONFIRMED' as const, confirmedAt: new Date() })
+    : ({ status: 'DRAFT' as const, confirmedAt: null })
+}
+
+/** Resolve `accountId` a partir do payload (conta explícita ou padrão do cartão). */
+async function resolveTransactionAccountId(
+  familyId: string,
+  accountId: string | undefined,
+  creditCardId: string | undefined,
+): Promise<string> {
+  let resolved = accountId
+  if (creditCardId) {
+    const card = await prisma.creditCard.findFirst({
+      where: { id: creditCardId, familyId },
+    })
+    if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
+    if (!resolved) {
+      if (!card.defaultAccountId) {
+        throw Object.assign(
+          new Error('Cartão sem conta padrão. Configure a conta no cadastro do cartão ou informe a conta.'),
+          { statusCode: 400 },
+        )
+      }
+      resolved = card.defaultAccountId
+    }
+  }
+  if (!resolved) {
+    throw Object.assign(new Error('Conta obrigatória'), { statusCode: 400 })
+  }
+  const account = await prisma.account.findFirst({ where: { id: resolved, familyId } })
+  if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
+  return resolved
+}
+
 export async function listTransactions(familyId: string, query: ListTransactionsInput) {
-  const { page, limit, accountId, categoryId, type, status, startDate, endDate, isRecurring } = query
+  const { page, limit, accountId, categoryId, type, status, startDate, endDate, isRecurring, liquidated } = query
   const skip = (page - 1) * limit
 
   const statusWhere =
@@ -26,6 +62,7 @@ export async function listTransactions(familyId: string, query: ListTransactions
     ...(type && { type }),
     ...statusWhere,
     ...(isRecurring !== undefined && { isRecurring }),
+    ...(liquidated !== undefined && { liquidated }),
     ...(startDate || endDate
       ? {
           date: {
@@ -43,6 +80,24 @@ export async function listTransactions(familyId: string, query: ListTransactions
         account: { select: { id: true, name: true } },
         category: { select: { id: true, name: true, type: true } },
         createdBy: { select: { id: true, name: true } },
+        creditCard: { select: { id: true, name: true } },
+        transfer: {
+          select: {
+            id: true,
+            fromAccountId: true,
+            toAccountId: true,
+            fromAccount: { select: { id: true, name: true } },
+            toAccount: { select: { id: true, name: true } },
+          },
+        },
+        creditCardInvoice: {
+          select: {
+            id: true,
+            referenceMonth: true,
+            referenceYear: true,
+            creditCard: { select: { id: true, name: true } },
+          },
+        },
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       skip,
@@ -69,6 +124,24 @@ export async function getTransaction(familyId: string, transactionId: string) {
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
+      creditCard: { select: { id: true, name: true } },
+      transfer: {
+        select: {
+          id: true,
+          fromAccountId: true,
+          toAccountId: true,
+          fromAccount: { select: { id: true, name: true } },
+          toAccount: { select: { id: true, name: true } },
+        },
+      },
+      creditCardInvoice: {
+        select: {
+          id: true,
+          referenceMonth: true,
+          referenceYear: true,
+          creditCard: { select: { id: true, name: true } },
+        },
+      },
       draft: true,
     },
   })
@@ -81,22 +154,28 @@ export async function getTransaction(familyId: string, transactionId: string) {
  * Se isRecurring=true, gera imediatamente as próximas ocorrências (90 dias).
  */
 export async function createTransaction(familyId: string, userId: string, input: CreateTransactionInput) {
-  const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
-  if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
+  const accountId = await resolveTransactionAccountId(
+    familyId,
+    input.accountId,
+    input.creditCardId,
+  )
 
   if (input.categoryId) {
     const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
   }
 
+  const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
+
   const transaction = await prisma.transaction.create({
     data: {
       familyId,
-      accountId: input.accountId,
+      accountId,
       categoryId: input.categoryId,
       createdById: userId,
       type: input.type,
-      status: 'DRAFT',
+      status,
+      confirmedAt,
       amount: input.amount,
       description: input.description,
       notes: input.notes,
@@ -104,11 +183,14 @@ export async function createTransaction(familyId: string, userId: string, input:
       source: input.source,
       isRecurring: input.isRecurring,
       rrule: input.rrule,
+      creditCardId: input.creditCardId ?? null,
+      liquidated: input.liquidated ?? false,
     },
     include: {
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
+      creditCard: { select: { id: true, name: true } },
     },
   })
 
@@ -134,8 +216,11 @@ export async function createInstallmentTransaction(
   userId: string,
   input: CreateTransactionInput & { installmentCount: number },
 ) {
-  const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
-  if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
+  const accountId = await resolveTransactionAccountId(
+    familyId,
+    input.accountId,
+    input.creditCardId,
+  )
 
   if (input.categoryId) {
     const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
@@ -144,6 +229,7 @@ export async function createInstallmentTransaction(
 
   const installmentGroupId = randomUUID()
   const baseDate = new Date(input.date)
+  const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
 
   const transactions = await prisma.$transaction(
     Array.from({ length: input.installmentCount }, (_, i) => {
@@ -153,11 +239,12 @@ export async function createInstallmentTransaction(
       return prisma.transaction.create({
         data: {
           familyId,
-          accountId: input.accountId,
+          accountId,
           categoryId: input.categoryId,
           createdById: userId,
           type: input.type,
-          status: 'DRAFT',
+          status,
+          confirmedAt,
           amount: input.amount,
           description: `${input.description} (${i + 1}/${input.installmentCount})`,
           notes: input.notes,
@@ -167,11 +254,13 @@ export async function createInstallmentTransaction(
           installmentGroupId,
           installmentIndex: i + 1,
           installmentCount: input.installmentCount,
+          liquidated: input.liquidated ?? false,
         },
         include: {
           account: { select: { id: true, name: true } },
           category: { select: { id: true, name: true, type: true } },
           createdBy: { select: { id: true, name: true } },
+          creditCard: { select: { id: true, name: true } },
         },
       })
     }),
@@ -187,6 +276,7 @@ export async function listRecurringTemplates(familyId: string) {
     include: {
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
+      creditCard: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -346,10 +436,12 @@ export async function updateTransaction(familyId: string, transactionId: string,
       ...(input.description !== undefined && { description: input.description }),
       ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.date !== undefined && { date: new Date(input.date) }),
+      ...(input.liquidated !== undefined && { liquidated: input.liquidated }),
     },
     include: {
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
+      creditCard: { select: { id: true, name: true } },
     },
   })
 }
@@ -381,6 +473,7 @@ export async function restoreTransaction(familyId: string, transactionId: string
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
+      creditCard: { select: { id: true, name: true } },
     },
   })
 }

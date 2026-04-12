@@ -77,11 +77,23 @@ export function registerReportHandlers(
 
     const [income, expense, accounts] = await Promise.all([
       prisma.transaction.aggregate({
-        where: { familyId, type: 'INCOME', status: 'CONFIRMED', date: dateFilter, transferId: null },
+        where: {
+          familyId,
+          type: 'INCOME',
+          status: 'CONFIRMED',
+          recognition: 'OPERATIONAL',
+          date: dateFilter,
+        },
         _sum: { amount: true },
       }),
       prisma.transaction.aggregate({
-        where: { familyId, type: 'EXPENSE', status: 'CONFIRMED', date: dateFilter, transferId: null },
+        where: {
+          familyId,
+          type: 'EXPENSE',
+          status: 'CONFIRMED',
+          recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+          date: dateFilter,
+        },
         _sum: { amount: true },
       }),
       prisma.account.findMany({
@@ -132,7 +144,13 @@ export function registerReportHandlers(
     const dateFilter = { gte: new Date(startDate), lte: new Date(endDate) }
 
     const transactions = await prisma.transaction.findMany({
-      where: { familyId, type: 'EXPENSE', status: 'CONFIRMED', date: dateFilter, transferId: null },
+      where: {
+        familyId,
+        type: 'EXPENSE',
+        status: 'CONFIRMED',
+        recognition: 'OPERATIONAL',
+        date: dateFilter,
+      },
       select: { amount: true, categoryId: true, category: { select: { id: true, name: true } } },
     })
 
@@ -200,11 +218,25 @@ export function registerReportHandlers(
 
         const [income, expense] = await Promise.all([
           prisma.transaction.aggregate({
-            where: { familyId, type: 'INCOME', status: 'CONFIRMED', date: dateFilter, transferId: null },
+            where: {
+              familyId,
+              type: 'INCOME',
+              status: 'CONFIRMED',
+              liquidated: true,
+              recognition: 'OPERATIONAL',
+              date: dateFilter,
+            },
             _sum: { amount: true },
           }),
           prisma.transaction.aggregate({
-            where: { familyId, type: 'EXPENSE', status: 'CONFIRMED', date: dateFilter, transferId: null },
+            where: {
+              familyId,
+              type: 'EXPENSE',
+              status: 'CONFIRMED',
+              liquidated: true,
+              recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+              date: dateFilter,
+            },
             _sum: { amount: true },
           }),
         ])

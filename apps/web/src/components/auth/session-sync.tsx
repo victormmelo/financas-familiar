@@ -5,6 +5,7 @@ import { signOut, useSession } from 'next-auth/react'
 import { usePathname, useRouter } from 'next/navigation'
 import { ApiClientError, api, setAccessToken } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth.store'
+import { emptyUserEntryPreferences, type UserEntryPreferences } from '@financas/shared-types'
 
 interface MeUser {
   id: string
@@ -13,6 +14,7 @@ interface MeUser {
   role: 'ADMIN' | 'MEMBER'
   familyId: string
   family: { id: string; name: string }
+  entryPreferences?: UserEntryPreferences
 }
 
 /** Sincroniza access token OIDC e perfil Prisma (`GET /auth/me`) com o store. */
@@ -109,6 +111,7 @@ export function SessionSync() {
             role: u.role,
             familyId: u.familyId,
             familyName: u.family.name,
+            entryPreferences: u.entryPreferences ?? emptyUserEntryPreferences(),
           })
           setBootstrapStatus('ready')
           if (pathname?.startsWith('/auth/bootstrap')) {

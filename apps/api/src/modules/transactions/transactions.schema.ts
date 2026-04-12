@@ -3,27 +3,38 @@ import { z } from 'zod'
 const transactionTypeEnum = z.enum(['INCOME', 'EXPENSE'])
 const draftSourceEnum = z.enum(['MANUAL', 'AI_TEXT', 'AI_VOICE', 'AI_RECEIPT', 'PDF', 'OFX', 'CSV', 'OPEN_FINANCE'])
 
-export const createTransactionSchema = z.object({
-  accountId: z.string().uuid('ID de conta inválido'),
-  categoryId: z.string().uuid().optional(),
-  type: transactionTypeEnum,
-  amount: z.number().positive('Valor deve ser positivo'),
-  description: z.string().min(1, 'Descrição obrigatória'),
-  notes: z.string().optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use YYYY-MM-DD)'),
-  source: draftSourceEnum.default('MANUAL'),
-  creditCardId: z.string().uuid().optional(),
-  isRecurring: z.boolean().default(false),
-  rrule: z.string().optional(),
-  // parcelamento — mutuamente exclusivo com isRecurring
-  installmentCount: z.number().int().min(2).max(360).optional(),
-}).refine(
-  (data) => !(data.isRecurring && data.installmentCount),
-  { message: 'Uma transação não pode ser recorrente e parcelada ao mesmo tempo', path: ['installmentCount'] },
-).refine(
-  (data) => !data.isRecurring || !!data.rrule,
-  { message: 'Transações recorrentes requerem o campo rrule', path: ['rrule'] },
-)
+export const createTransactionSchema = z
+  .object({
+    /** Opcional quando `creditCardId` está presente e o cartão tem conta padrão. */
+    accountId: z.string().uuid('ID de conta inválido').optional(),
+    categoryId: z.string().uuid().optional(),
+    type: transactionTypeEnum,
+    amount: z.number().positive('Valor deve ser positivo'),
+    description: z.string().min(1, 'Descrição obrigatória'),
+    notes: z.string().optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use YYYY-MM-DD)'),
+    source: draftSourceEnum.default('MANUAL'),
+    creditCardId: z.string().uuid().optional(),
+    isRecurring: z.boolean().default(false),
+    rrule: z.string().optional(),
+    // parcelamento — mutuamente exclusivo com isRecurring
+    installmentCount: z.number().int().min(2).max(360).optional(),
+    liquidated: z.boolean().optional(),
+    /** Se true, cria já como CONFIRMED (ex.: formulário web). Padrão false (rascunho). */
+    confirmed: z.boolean().optional().default(false),
+  })
+  .refine(
+    (data) => !(data.isRecurring && data.installmentCount),
+    { message: 'Uma transação não pode ser recorrente e parcelada ao mesmo tempo', path: ['installmentCount'] },
+  )
+  .refine((data) => !data.isRecurring || !!data.rrule, {
+    message: 'Transações recorrentes requerem o campo rrule',
+    path: ['rrule'],
+  })
+  .refine((data) => data.creditCardId != null || data.accountId != null, {
+    message: 'Selecione uma conta',
+    path: ['accountId'],
+  })
 
 export const updateTransactionSchema = z.object({
   categoryId: z.string().uuid().optional().nullable(),
@@ -31,6 +42,7 @@ export const updateTransactionSchema = z.object({
   description: z.string().min(1).optional(),
   notes: z.string().optional().nullable(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  liquidated: z.boolean().optional(),
 })
 
 export const bulkConfirmSchema = z.object({
@@ -53,6 +65,7 @@ export const listTransactionsSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isRecurring: z.coerce.boolean().optional(),
+  liquidated: z.coerce.boolean().optional(),
 })
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>

@@ -13,6 +13,7 @@ async function getSpentAmount(
       categoryId,
       type: 'EXPENSE',
       status: 'CONFIRMED',
+      recognition: 'OPERATIONAL',
       date: {
         gte: new Date(year, month - 1, 1),
         lt: new Date(year, month, 1),

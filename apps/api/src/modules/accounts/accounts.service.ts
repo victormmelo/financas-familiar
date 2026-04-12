@@ -43,7 +43,10 @@ export async function listAccounts(familyId: string, query?: ListAccountsQueryIn
       const balance = useAsOf
         ? await calculateBalanceAsOf(account.id, asOfDate!)
         : await calculateBalance(account.id)
-      return { ...account, balance }
+      const liquidatedBalance = useAsOf
+        ? await calculateLiquidatedBalanceAsOf(account.id, asOfDate!)
+        : await calculateLiquidatedBalance(account.id)
+      return { ...account, balance, liquidatedBalance }
     }),
   )
 
@@ -57,7 +60,8 @@ export async function getAccount(familyId: string, accountId: string) {
   if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
 
   const balance = await calculateBalance(accountId)
-  return { ...account, balance }
+  const liquidatedBalance = await calculateLiquidatedBalance(accountId)
+  return { ...account, balance, liquidatedBalance }
 }
 
 async function sumConfirmedNonCardByType(
@@ -86,6 +90,34 @@ async function sumConfirmedNonCardByType(
   return { income, expense }
 }
 
+/** Saldo em caixa na conta: `liquidated` e não excluídos (inclui rascunho liquidado). */
+async function sumLiquidatedNonCardByType(
+  accountId: string,
+  dateLte?: Date,
+): Promise<{ income: Decimal; expense: Decimal }> {
+  const result = await prisma.transaction.groupBy({
+    by: ['type'],
+    where: {
+      accountId,
+      status: { not: 'DELETED' },
+      liquidated: true,
+      creditCardId: null,
+      ...(dateLte ? { date: { lte: dateLte } } : {}),
+    },
+    _sum: { amount: true },
+  })
+
+  let income = new Decimal(0)
+  let expense = new Decimal(0)
+
+  for (const row of result) {
+    if (row.type === 'INCOME') income = row._sum.amount ?? new Decimal(0)
+    if (row.type === 'EXPENSE') expense = row._sum.amount ?? new Decimal(0)
+  }
+
+  return { income, expense }
+}
+
 export async function calculateBalanceAsOf(accountId: string, asOfInclusive: Date): Promise<number> {
   const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
   const { income, expense } = await sumConfirmedNonCardByType(accountId, asOfInclusive)
@@ -95,6 +127,18 @@ export async function calculateBalanceAsOf(accountId: string, asOfInclusive: Dat
 export async function calculateBalance(accountId: string): Promise<number> {
   const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
   const { income, expense } = await sumConfirmedNonCardByType(accountId)
+  return account.initialBalance.add(income).sub(expense).toNumber()
+}
+
+export async function calculateLiquidatedBalanceAsOf(accountId: string, asOfInclusive: Date): Promise<number> {
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
+  const { income, expense } = await sumLiquidatedNonCardByType(accountId, asOfInclusive)
+  return account.initialBalance.add(income).sub(expense).toNumber()
+}
+
+export async function calculateLiquidatedBalance(accountId: string): Promise<number> {
+  const account = await prisma.account.findUniqueOrThrow({ where: { id: accountId } })
+  const { income, expense } = await sumLiquidatedNonCardByType(accountId)
   return account.initialBalance.add(income).sub(expense).toNumber()
 }
 

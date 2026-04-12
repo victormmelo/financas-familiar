@@ -88,7 +88,9 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
           date,
           source: 'MANUAL',
           transferId: transfer.id,
+          recognition: 'TRANSFER_LEG',
           confirmedAt: new Date(),
+          liquidated: true,
         },
         {
           familyId,
@@ -101,7 +103,9 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
           date,
           source: 'MANUAL',
           transferId: transfer.id,
+          recognition: 'TRANSFER_LEG',
           confirmedAt: new Date(),
+          liquidated: true,
         },
       ],
     })
