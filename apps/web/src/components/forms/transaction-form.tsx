@@ -272,16 +272,16 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     <Dialog
       open={open}
       onClose={onClose}
-      className="w-full max-w-md"
+      className="w-full max-w-xl"
       preventClose={isSubmitting}
     >
       <DialogHeader title={isEdit ? 'Editar Transação' : 'Nova Transação'} onClose={onClose} />
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
-        <DialogBody className="space-y-4">
+        <DialogBody className="space-y-5">
 
           {/* Modo de lançamento — somente na criação */}
           {!isEdit && (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label id="tx-form-mode-label">Tipo de lançamento</Label>
               <div
                 className="grid grid-cols-3 gap-1 rounded-sm border border-border p-1 bg-muted"
@@ -306,15 +306,36 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="tx-form-type">Tipo</Label>
-              <Select id="tx-form-type" error={errors.type?.message} {...register('type')}>
-                <option value="EXPENSE">Despesa</option>
-                <option value="INCOME">Receita</option>
-              </Select>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
+            <div className="min-w-0 space-y-1.5">
+              <Label id="tx-form-movement-type-label">Receita ou despesa</Label>
+              <div
+                className="grid grid-cols-2 gap-1 rounded-sm border border-border p-1 bg-muted"
+                role="radiogroup"
+                aria-labelledby="tx-form-movement-type-label"
+              >
+                {(['EXPENSE', 'INCOME'] as const).map((t) => (
+                  <label key={t} className="min-w-0 cursor-pointer">
+                    <input type="radio" value={t} {...register('type')} className="sr-only" />
+                    <span
+                      className={`block text-center text-xs font-medium py-2 rounded-sm transition-colors ${
+                        selectedType === t
+                          ? 'bg-background text-[#7CFC98] border border-[#285E38]'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {t === 'EXPENSE' ? 'Despesa' : 'Receita'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {errors.type?.message && (
+                <p className="text-xs text-destructive" role="alert">
+                  {errors.type.message}
+                </p>
+              )}
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label htmlFor="tx-form-amount">Valor{selectedMode === 'installment' ? ' por parcela' : ''}</Label>
               <Controller
                 name="amount"
@@ -339,7 +360,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           </div>
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="tx-form-description">Descrição</Label>
             <Input
               id="tx-form-description"
@@ -349,7 +370,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="tx-form-account">Conta</Label>
             <Select id="tx-form-account" error={errors.accountId?.message} {...register('accountId')}>
               <option value="">Selecione uma conta</option>
@@ -371,7 +392,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           )}
 
           {!isEdit && selectedType === 'EXPENSE' && (
-            <fieldset className="space-y-3 rounded-sm border border-border bg-muted/30 p-3">
+            <fieldset className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/30 p-3">
               <legend className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Forma de pagamento
               </legend>
@@ -438,7 +459,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           )}
 
           {!isEdit && selectedType === 'INCOME' && (
-            <div className="rounded-sm border border-border bg-muted/40 p-3 space-y-3">
+            <div className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/40 p-3">
               <label className="flex items-start gap-2 cursor-pointer text-sm">
                 <Controller
                   name="cardCreditOnInvoice"
@@ -479,23 +500,30 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="tx-form-category">Categoria</Label>
-            <Select id="tx-form-category" {...register('categoryId')}>
-              <option value="">Sem categoria</option>
-              {filteredCategories?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="tx-form-date">
-              {selectedMode === 'recurring' ? 'Data inicial' : selectedMode === 'installment' ? 'Data da 1ª parcela' : 'Data'}
-            </Label>
-            <Input id="tx-form-date" type="date" error={errors.date?.message} {...register('date')} />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="tx-form-category">Categoria</Label>
+              <Select id="tx-form-category" {...register('categoryId')}>
+                <option value="">Sem categoria</option>
+                {filteredCategories?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="tx-form-date">
+                {selectedMode === 'recurring' ? 'Data inicial' : selectedMode === 'installment' ? 'Data da 1ª parcela' : 'Data'}
+              </Label>
+              <Input
+                id="tx-form-date"
+                type="date"
+                className="rounded-sm font-mono tabular-nums"
+                error={errors.date?.message}
+                {...register('date')}
+              />
+            </div>
           </div>
 
           {/* Campos extras: Recorrente */}
@@ -538,7 +566,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label htmlFor="tx-form-notes">Observações</Label>
             <Input id="tx-form-notes" placeholder="Opcional..." {...register('notes')} />
           </div>
