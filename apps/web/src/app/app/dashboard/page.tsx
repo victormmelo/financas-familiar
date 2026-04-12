@@ -142,7 +142,11 @@ function DashboardContent() {
     router.replace(`${pathname}?ano=${now.year}&mes=${now.month}`, { scroll: false })
   }
 
-  const totalBalance = useMemo(
+  const totalLiquidated = useMemo(
+    () => accounts?.reduce((sum, a) => sum + Number(a.liquidatedBalance), 0) ?? 0,
+    [accounts],
+  )
+  const totalProjected = useMemo(
     () => accounts?.reduce((sum, a) => sum + Number(a.balance), 0) ?? 0,
     [accounts],
   )
@@ -160,6 +164,25 @@ function DashboardContent() {
     () =>
       transactions
         .filter((t) => t.type === 'EXPENSE' && countsForMonthIncomeExpenseTotals(t))
+        .reduce((s, t) => s + Number(t.amount), 0),
+    [transactions],
+  )
+
+  const monthIncomeLiquidated = useMemo(
+    () =>
+      transactions
+        .filter(
+          (t) => t.type === 'INCOME' && t.liquidated === true && countsForMonthIncomeExpenseTotals(t),
+        )
+        .reduce((s, t) => s + Number(t.amount), 0),
+    [transactions],
+  )
+  const monthExpenseLiquidated = useMemo(
+    () =>
+      transactions
+        .filter(
+          (t) => t.type === 'EXPENSE' && t.liquidated === true && countsForMonthIncomeExpenseTotals(t),
+        )
         .reduce((s, t) => s + Number(t.amount), 0),
     [transactions],
   )
@@ -186,6 +209,7 @@ function DashboardContent() {
   const budgetItems = budgets?.slice(0, 5) ?? []
   const topGoals = goals?.slice(0, 3) ?? []
   const monthBalance = monthIncome - monthExpense
+  const monthBalanceLiquidated = monthIncomeLiquidated - monthExpenseLiquidated
 
   const monthTitle = getMonthName(month)
   const periodLabel = formatMonthYearLabel(year, month)
@@ -203,33 +227,47 @@ function DashboardContent() {
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard
-          title={`Saldo total até ${monthTitle}`}
-          value={formatCurrency(totalBalance)}
+        <BalanceSummaryCard
+          title={`Saldos até ${monthTitle}`}
+          liquidatedLabel="Liquidado (caixa)"
+          liquidatedValue={formatCurrency(totalLiquidated)}
+          projectedLabel="Previsto (competência)"
+          projectedValue={formatCurrency(totalProjected)}
           icon={<Wallet className="h-5 w-5 text-primary" />}
           bg="bg-primary/10"
-          valueClass={totalBalance >= 0 ? 'text-foreground' : 'text-rose-400'}
         />
-        <SummaryCard
+        <BalanceSummaryCard
           title={`Receitas — ${monthTitle}`}
-          value={formatCurrency(monthIncome)}
+          liquidatedLabel="Liquidado (caixa)"
+          liquidatedValue={formatCurrency(monthIncomeLiquidated)}
+          projectedLabel="Previsto (competência)"
+          projectedValue={formatCurrency(monthIncome)}
           icon={<TrendingUp className="h-5 w-5 text-emerald-400" />}
           bg="bg-emerald-950/30"
-          valueClass="text-emerald-400"
+          liquidatedValueClass="text-emerald-400"
+          projectedValueClass="text-emerald-400/75"
         />
-        <SummaryCard
+        <BalanceSummaryCard
           title={`Despesas — ${monthTitle}`}
-          value={formatCurrency(monthExpense)}
+          liquidatedLabel="Liquidado (caixa)"
+          liquidatedValue={formatCurrency(monthExpenseLiquidated)}
+          projectedLabel="Previsto (competência)"
+          projectedValue={formatCurrency(monthExpense)}
           icon={<TrendingDown className="h-5 w-5 text-rose-400" />}
           bg="bg-rose-950/30"
-          valueClass="text-rose-400"
+          liquidatedValueClass="text-rose-400"
+          projectedValueClass="text-rose-400/75"
         />
-        <SummaryCard
+        <BalanceSummaryCard
           title={`Saldo do mês (${monthTitle})`}
-          value={formatCurrency(monthBalance)}
+          liquidatedLabel="Liquidado (caixa)"
+          liquidatedValue={formatCurrency(monthBalanceLiquidated)}
+          projectedLabel="Previsto (competência)"
+          projectedValue={formatCurrency(monthBalance)}
           icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
           bg="bg-muted"
-          valueClass={monthBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+          liquidatedValueClass={monthBalanceLiquidated >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+          projectedValueClass={monthBalance >= 0 ? 'text-emerald-400/75' : 'text-rose-400/75'}
         />
       </div>
 
@@ -263,11 +301,20 @@ function DashboardContent() {
                         <p className="text-xs text-muted-foreground">{account.type}</p>
                       </div>
                     </div>
-                    <span
-                      className={`self-end font-mono text-sm font-semibold tabular-nums sm:self-auto ${account.balance >= 0 ? 'text-foreground' : 'text-rose-400'}`}
-                    >
-                      {formatCurrency(account.balance)}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+                      <span
+                        className={`font-mono text-sm font-semibold tabular-nums ${account.liquidatedBalance >= 0 ? 'text-foreground' : 'text-rose-400'}`}
+                        title="Saldo liquidado"
+                      >
+                        {formatCurrency(account.liquidatedBalance)}
+                      </span>
+                      <span
+                        className="font-mono text-xs tabular-nums text-muted-foreground"
+                        title="Saldo previsto (confirmado)"
+                      >
+                        prev. {formatCurrency(account.balance)}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -489,18 +536,26 @@ function DashboardContent() {
   )
 }
 
-function SummaryCard({
+function BalanceSummaryCard({
   title,
-  value,
+  liquidatedLabel,
+  liquidatedValue,
+  projectedLabel,
+  projectedValue,
   icon,
   bg,
-  valueClass = 'text-foreground',
+  liquidatedValueClass = 'text-foreground',
+  projectedValueClass = 'text-muted-foreground',
 }: {
   title: string
-  value: string
+  liquidatedLabel: string
+  liquidatedValue: string
+  projectedLabel: string
+  projectedValue: string
   icon: ReactNode
   bg: string
-  valueClass?: string
+  liquidatedValueClass?: string
+  projectedValueClass?: string
 }) {
   return (
     <Card>
@@ -509,7 +564,20 @@ function SummaryCard({
           <p className="min-w-0 flex-1 text-balance text-sm text-muted-foreground">{title}</p>
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${bg}`}>{icon}</div>
         </div>
-        <p className={`font-mono text-xl font-semibold tabular-nums sm:text-2xl ${valueClass}`}>{value}</p>
+        <div className="space-y-2">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{liquidatedLabel}</p>
+            <p
+              className={`font-mono text-xl font-semibold tabular-nums sm:text-2xl ${liquidatedValueClass}`}
+            >
+              {liquidatedValue}
+            </p>
+          </div>
+          <div className="border-t border-border pt-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{projectedLabel}</p>
+            <p className={`font-mono text-sm font-medium tabular-nums ${projectedValueClass}`}>{projectedValue}</p>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
