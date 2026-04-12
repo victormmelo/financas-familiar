@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt, RotateCcw, Tag } from 'lucide-react'
+import { Plus, Check, CheckCheck, CreditCard, Trash2, Pencil, Receipt, RotateCcw, Tag } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,7 @@ export default function TransacoesPage() {
   const { toast } = useToast()
   const [filters, setFilters] = useState<TransactionFilters>({ page: 1, limit: 20 })
   const [showForm, setShowForm] = useState(false)
+  const [createEntry, setCreateEntry] = useState<'default' | 'card'>('default')
   const [editingTx, setEditingTx] = useState<Transaction | undefined>()
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -375,9 +376,28 @@ export default function TransacoesPage() {
                 )}
               </div>
             )}
-            <Button className="w-full rounded-sm md:w-auto" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4" aria-hidden /> Nova transação
-            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:justify-end">
+              <Button
+                className="w-full rounded-sm sm:w-auto"
+                onClick={() => {
+                  setCreateEntry('default')
+                  setShowForm(true)
+                }}
+              >
+                <Plus className="h-4 w-4" aria-hidden /> Nova transação
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-sm border-[#285E38] text-[#8DDBA4] hover:bg-[#112417] hover:text-[#8DDBA4] sm:w-auto"
+                onClick={() => {
+                  setCreateEntry('card')
+                  setShowForm(true)
+                }}
+              >
+                <CreditCard className="h-4 w-4" aria-hidden /> No cartão
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -426,9 +446,30 @@ export default function TransacoesPage() {
                   Ajuste os critérios de busca ou registre um novo lançamento.
                 </p>
               </div>
-              <Button variant="outline" size="sm" className="rounded-sm" onClick={() => setShowForm(true)}>
-                <Plus className="h-4 w-4" aria-hidden /> Registrar lançamento
-              </Button>
+              <div className="flex w-full max-w-sm flex-col gap-2 sm:flex-row sm:justify-center">
+                <Button
+                  size="sm"
+                  className="w-full rounded-sm sm:flex-1"
+                  onClick={() => {
+                    setCreateEntry('default')
+                    setShowForm(true)
+                  }}
+                >
+                  <Plus className="h-4 w-4" aria-hidden /> Registrar à vista
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full rounded-sm border-[#285E38] text-[#8DDBA4] hover:bg-[#112417] hover:text-[#8DDBA4] sm:flex-1"
+                  onClick={() => {
+                    setCreateEntry('card')
+                    setShowForm(true)
+                  }}
+                >
+                  <CreditCard className="h-4 w-4" aria-hidden /> No cartão
+                </Button>
+              </div>
             </div>
           ) : (
             <>
@@ -456,6 +497,11 @@ export default function TransacoesPage() {
                         </div>
                         <div>
                           <p className="font-medium text-foreground">{t.description}</p>
+                          {t.creditCard && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
+                            </p>
+                          )}
                           {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                         </div>
                         <dl className="grid gap-1 text-xs text-secondary-foreground">
@@ -540,6 +586,11 @@ export default function TransacoesPage() {
                         <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatDate(t.date)}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-foreground">{t.description}</p>
+                          {t.creditCard && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
+                            </p>
+                          )}
                           {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                         </td>
                         <td className="px-4 py-3 text-secondary-foreground">{t.account?.name ?? '—'}</td>
@@ -686,8 +737,10 @@ export default function TransacoesPage() {
         onClose={() => {
           setShowForm(false)
           setEditingTx(undefined)
+          setCreateEntry('default')
         }}
         transaction={editingTx}
+        createEntry={editingTx ? undefined : createEntry}
       />
       <ConfirmDialog
         open={!!deleteId}
