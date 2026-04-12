@@ -16,10 +16,13 @@ interface AuthState {
   isAuthenticated: boolean
   bootstrapStatus: AuthBootstrapStatus
   hasSessionToken: boolean
+  /** Incrementado para forçar nova chamada a `/auth/me` (ex.: após falha transitória). */
+  sessionSyncNonce: number
   setUser: (user: User | null) => void
   setBootstrapStatus: (status: AuthBootstrapStatus) => void
   setHasSessionToken: (hasSessionToken: boolean) => void
   clearAuth: () => void
+  requestSessionSyncRetry: () => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -27,6 +30,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   bootstrapStatus: 'idle',
   hasSessionToken: false,
+  sessionSyncNonce: 0,
   setUser: (user) => set({ user, isAuthenticated: !!user }),
   setBootstrapStatus: (bootstrapStatus) => set({ bootstrapStatus }),
   setHasSessionToken: (hasSessionToken) => set({ hasSessionToken }),
@@ -36,4 +40,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: false,
       hasSessionToken: false,
     }),
+  requestSessionSyncRetry: () =>
+    set((s) => ({
+      sessionSyncNonce: s.sessionSyncNonce + 1,
+      bootstrapStatus: 'loading',
+      user: null,
+      isAuthenticated: false,
+    })),
 }))

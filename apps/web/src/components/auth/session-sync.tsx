@@ -25,6 +25,8 @@ export function SessionSync() {
   const pathname = usePathname()
   const router = useRouter()
   const lastBootstrapTokenRef = useRef<string | null>(null)
+  const syncInFlightRef = useRef(false)
+  const sessionSyncNonce = useAuthStore((s) => s.sessionSyncNonce)
   const setUser = useAuthStore((s) => s.setUser)
   const clearAuth = useAuthStore((s) => s.clearAuth)
   const setBootstrapStatus = useAuthStore((s) => s.setBootstrapStatus)
@@ -40,6 +42,7 @@ export function SessionSync() {
 
     if (status === 'unauthenticated') {
       lastBootstrapTokenRef.current = null
+      syncInFlightRef.current = false
       setAccessToken(null)
       setHasSessionToken(false)
       clearAuth()
@@ -49,13 +52,40 @@ export function SessionSync() {
       }
       return
     }
+
     if (status !== 'authenticated' || !sessionAccessToken) {
       lastBootstrapTokenRef.current = null
+      syncInFlightRef.current = false
+      if (status === 'authenticated' && !sessionAccessToken) {
+        void (async () => {
+          try {
+            await signOut({ redirect: false })
+          } catch {
+            /* ignora */
+          }
+          setAccessToken(null)
+          setHasSessionToken(false)
+          clearAuth()
+          setBootstrapStatus('idle')
+          if (pathname?.startsWith('/app')) {
+            router.replace(`/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
+          }
+        })()
+        return
+      }
       setBootstrapStatus('error')
       return
     }
 
-    if (lastBootstrapTokenRef.current === sessionAccessToken) {
+    const store = useAuthStore.getState()
+    if (
+      lastBootstrapTokenRef.current === sessionAccessToken &&
+      store.bootstrapStatus === 'ready' &&
+      store.user
+    ) {
+      return
+    }
+    if (lastBootstrapTokenRef.current === sessionAccessToken && syncInFlightRef.current) {
       return
     }
 
@@ -63,6 +93,7 @@ export function SessionSync() {
     setHasSessionToken(true)
     setAccessToken(sessionAccessToken)
     lastBootstrapTokenRef.current = sessionAccessToken
+    syncInFlightRef.current = true
 
     let cancelled = false
     void (async () => {
@@ -110,17 +141,30 @@ export function SessionSync() {
           setAccessToken(null)
           setHasSessionToken(false)
           clearAuth()
-          setBootstrapStatus('error')
-          lastBootstrapTokenRef.current = sessionAccessToken
+          lastBootstrapTokenRef.current = null
+          setBootstrapStatus('idle')
           if (pathname?.startsWith('/app')) {
-            await signOut({ redirect: false })
+            try {
+              await signOut({ redirect: false })
+            } catch {
+              /* ignora */
+            }
             router.replace(`/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`)
+          } else {
+            try {
+              await signOut({ redirect: false })
+            } catch {
+              /* ignora */
+            }
           }
           return
         }
 
+        lastBootstrapTokenRef.current = null
         clearAuth()
         setBootstrapStatus('error')
+      } finally {
+        syncInFlightRef.current = false
       }
     })()
 
@@ -132,6 +176,7 @@ export function SessionSync() {
     sessionAccessToken,
     pathname,
     router,
+    sessionSyncNonce,
     setUser,
     clearAuth,
     setBootstrapStatus,
