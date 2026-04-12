@@ -35,6 +35,7 @@ export interface TransactionFilters {
   startDate?: string
   endDate?: string
   isRecurring?: boolean
+  enabled?: boolean
 }
 
 export interface TransactionListResponse {
@@ -65,6 +66,7 @@ function normalizeAmount(amount: Transaction['amount']): number {
 export function useTransactions(filters: TransactionFilters = {}) {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([k, v]) => {
+    if (k === 'enabled') return
     if (v !== undefined && v !== '') params.set(k, String(v))
   })
   const qs = params.toString()
@@ -81,6 +83,7 @@ export function useTransactions(filters: TransactionFilters = {}) {
         totalPages: raw.pagination.pages,
       } satisfies TransactionListResponse
     },
+    enabled: filters.enabled ?? true,
   })
 }
 
@@ -162,6 +165,39 @@ export function useDeleteTransaction() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/transactions/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useRestoreTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post<Transaction>(`/transactions/${id}/restore`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function usePermanentlyDeleteTransaction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/transactions/${id}/permanent`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+    },
+  })
+}
+
+export function useEmptyTransactionTrash() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ deleted: number }>('/transactions/trash/empty'),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })

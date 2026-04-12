@@ -25,6 +25,15 @@ export function registerErrorHandler(app: FastifyInstance) {
       })
     }
 
+    if (appError.statusCode === 502) {
+      app.log.error({ err: error, reqId: request.id, url: request.url }, appError.message)
+      return reply.status(502).send({
+        statusCode: 502,
+        error: 'Bad Gateway',
+        message: appError.message,
+      })
+    }
+
     // Erros 5xx: loga e reporta ao Sentry
     app.log.error({ err: error, reqId: request.id, url: request.url }, appError.message)
     Sentry.captureException(error, { extra: { url: request.url, method: request.method } })

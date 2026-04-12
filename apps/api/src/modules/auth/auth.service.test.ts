@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcrypt'
 
 /** Cliente passado ao callback de `prisma.$transaction` (transação interativa). */
 type PrismaTransactionClient = Omit<
@@ -8,7 +7,6 @@ type PrismaTransactionClient = Omit<
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$extends'
 >
 
-// Mock dependencies before importing the module under test
 vi.mock('../../lib/prisma.js', () => ({
   prisma: {
     user: {
@@ -30,35 +28,30 @@ vi.mock('../../lib/prisma.js', () => ({
   },
 }))
 
-vi.mock('../../lib/redis.js', () => ({
-  redis: {
-    set: vi.fn().mockResolvedValue('OK'),
-    get: vi.fn(),
-    del: vi.fn(),
-  },
-}))
-
 vi.mock('../../jobs/email.queue.js', () => ({
   emailQueue: { add: vi.fn() },
 }))
 
 import { prisma } from '../../lib/prisma.js'
-import { redis } from '../../lib/redis.js'
-import { register, login, refresh, logout } from './auth.service.js'
+import { emailQueue } from '../../jobs/email.queue.js'
+import { bootstrap, invite, acceptInvite, findAuthUserByKeycloakSub } from './auth.service.js'
+import type { KeycloakAccessClaims } from '../../lib/keycloak-claims.js'
 
-const mockApp = {
-  jwt: {
-    sign: vi.fn().mockReturnValue('mock-token'),
-    verify: vi.fn(),
-  },
-}
+const kcClaims = (over: Partial<KeycloakAccessClaims> = {}): KeycloakAccessClaims =>
+  ({
+    sub: 'kc-sub-1',
+    email: 'joao@exemplo.com',
+    email_verified: true,
+    ...over,
+  }) as KeycloakAccessClaims
 
-const mockUser = {
+const mockUserRow = {
   id: 'user-1',
   familyId: 'family-1',
   name: 'João Silva',
   email: 'joao@exemplo.com',
-  passwordHash: '',
+  passwordHash: null as string | null,
+  keycloakSub: 'kc-sub-1',
   role: 'ADMIN',
   family: { id: 'family-1', name: 'Família Silva' },
 }
@@ -67,112 +60,155 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('register', () => {
-  it('deve criar família e usuário com role ADMIN', async () => {
+describe('bootstrap', () => {
+  it('deve criar família e usuário ADMIN com keycloakSub', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
     vi.mocked(prisma.$transaction).mockImplementation(
       async (fn: (tx: PrismaTransactionClient) => Promise<unknown>) => {
         const txMock = {
           family: { create: vi.fn().mockResolvedValue({ id: 'family-1', name: 'Família Silva' }) },
           user: {
-            create: vi.fn().mockResolvedValue({ ...mockUser, passwordHash: 'hashed' }),
+            create: vi.fn().mockResolvedValue(mockUserRow),
           },
         }
         return fn(txMock as unknown as PrismaTransactionClient)
       },
     )
 
-    const result = await register(mockApp as never, {
-      name: 'João Silva',
-      email: 'joao@exemplo.com',
-      password: 'senha123',
-      familyName: 'Família Silva',
-    })
+    const result = await bootstrap(
+      { familyName: 'Família Silva', name: 'João Silva' },
+      kcClaims(),
+    )
 
     expect(result.user.email).toBe('joao@exemplo.com')
     expect(result.user.role).toBe('ADMIN')
-    expect(result.tokens.accessToken).toBe('mock-token')
-    expect(redis.set).toHaveBeenCalledOnce()
   })
 
   it('deve rejeitar e-mail duplicado com status 409', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser as never)
+    vi.mocked(prisma.user.findUnique)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(mockUserRow as never)
 
-    await expect(
-      register(mockApp as never, {
-        name: 'João',
-        email: 'joao@exemplo.com',
-        password: 'senha123',
-        familyName: 'Família',
-      }),
-    ).rejects.toMatchObject({ statusCode: 409, message: 'E-mail já cadastrado' })
-  })
-})
-
-describe('login', () => {
-  it('deve autenticar usuário com credenciais válidas', async () => {
-    const hash = await bcrypt.hash('senha123', 10)
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...mockUser, passwordHash: hash } as never)
-
-    const result = await login(mockApp as never, { email: 'joao@exemplo.com', password: 'senha123' })
-
-    expect(result.user.email).toBe('joao@exemplo.com')
-    expect(result.tokens.accessToken).toBe('mock-token')
+    await expect(bootstrap({ familyName: 'F', name: 'João' }, kcClaims())).rejects.toMatchObject({
+      statusCode: 409,
+    })
   })
 
-  it('deve rejeitar senha incorreta com status 401', async () => {
-    const hash = await bcrypt.hash('outra-senha', 10)
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ ...mockUser, passwordHash: hash } as never)
-
-    await expect(
-      login(mockApp as never, { email: 'joao@exemplo.com', password: 'senha-errada' }),
-    ).rejects.toMatchObject({ statusCode: 401 })
-  })
-
-  it('deve rejeitar e-mail inexistente com status 401', async () => {
+  it('deve rejeitar token sem e-mail utilizável', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
 
     await expect(
-      login(mockApp as never, { email: 'nao@existe.com', password: 'qualquer' }),
-    ).rejects.toMatchObject({ statusCode: 401 })
+      bootstrap({ familyName: 'F', name: 'João' }, kcClaims({ email: undefined, preferred_username: 'x' })),
+    ).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('deve rejeitar e-mail não verificado quando explicitamente false', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+
+    await expect(
+      bootstrap({ familyName: 'F', name: 'João' }, kcClaims({ email_verified: false })),
+    ).rejects.toMatchObject({ statusCode: 403 })
   })
 })
 
-describe('refresh', () => {
-  it('deve emitir novos tokens quando refresh token é válido', async () => {
-    const payload = { sub: 'user-1', familyId: 'family-1', role: 'ADMIN', jti: 'token-id' }
-    vi.mocked(mockApp.jwt.verify).mockReturnValue(payload)
-    vi.mocked(redis.get).mockResolvedValue('1')
-    vi.mocked(redis.del).mockResolvedValue(1)
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser as never)
+describe('invite', () => {
+  it('deve criar convite e enfileirar e-mail', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.familyInvite.findFirst).mockResolvedValue(null)
+    vi.mocked(prisma.familyInvite.create).mockResolvedValue({} as never)
+    vi.mocked(prisma.family.findUniqueOrThrow).mockResolvedValue({ id: 'f1', name: 'Fam' } as never)
+    vi.mocked(prisma.user.findUniqueOrThrow).mockResolvedValue({ name: 'Admin' } as never)
 
-    const tokens = await refresh(mockApp as never, 'valid-refresh-token')
+    const result = await invite('family-1', 'admin-id', { email: 'novo@exemplo.com' })
 
-    expect(tokens.accessToken).toBe('mock-token')
-    expect(redis.del).toHaveBeenCalledOnce()
-    expect(redis.set).toHaveBeenCalledOnce()
+    expect(result.token).toHaveLength(64)
+    expect(emailQueue.add).toHaveBeenCalledWith(
+      'send-invite',
+      expect.objectContaining({ to: 'novo@exemplo.com' }),
+    )
   })
 
-  it('deve rejeitar refresh token já utilizado (rotation)', async () => {
-    const payload = { sub: 'user-1', familyId: 'family-1', role: 'ADMIN', jti: 'token-id' }
-    vi.mocked(mockApp.jwt.verify).mockReturnValue(payload)
-    vi.mocked(redis.get).mockResolvedValue(null) // token não existe no Redis
+  it('deve rejeitar convite para e-mail já cadastrado', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUserRow as never)
 
-    await expect(refresh(mockApp as never, 'used-refresh-token')).rejects.toMatchObject({ statusCode: 401 })
+    await expect(invite('family-1', 'admin-id', { email: 'joao@exemplo.com' })).rejects.toMatchObject({
+      statusCode: 409,
+    })
   })
 })
 
-describe('logout', () => {
-  it('deve deletar chave do Redis quando jti é fornecido', async () => {
-    vi.mocked(redis.del).mockResolvedValue(1)
+describe('acceptInvite', () => {
+  it('deve criar MEMBER quando e-mail do token coincide com o convite', async () => {
+    const inv = {
+      id: 'inv-1',
+      familyId: 'family-1',
+      invitedById: 'admin',
+      email: 'membro@exemplo.com',
+      token: 'tok',
+      expiresAt: new Date(Date.now() + 86400000),
+      acceptedAt: null,
+      createdAt: new Date(),
+    }
+    vi.mocked(prisma.familyInvite.findUnique).mockResolvedValue(inv as never)
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.$transaction).mockImplementation(
+      async (fn: (tx: PrismaTransactionClient) => Promise<unknown>) => {
+        const member = {
+          id: 'u2',
+          familyId: 'family-1',
+          name: 'Maria',
+          email: 'membro@exemplo.com',
+          passwordHash: null,
+          keycloakSub: 'kc-sub-2',
+          role: 'MEMBER',
+          family: { id: 'family-1', name: 'Fam' },
+        }
+        const txMock = {
+          user: { create: vi.fn().mockResolvedValue(member) },
+          familyInvite: { update: vi.fn() },
+        }
+        return fn(txMock as unknown as PrismaTransactionClient)
+      },
+    )
 
-    await logout('user-1', 'token-id')
+    const result = await acceptInvite(
+      'tok',
+      { name: 'Maria' },
+      kcClaims({ sub: 'kc-sub-2', email: 'membro@exemplo.com' }),
+    )
 
-    expect(redis.del).toHaveBeenCalledWith('refresh:user-1:token-id')
+    expect(result.user.role).toBe('MEMBER')
+    expect(result.user.email).toBe('membro@exemplo.com')
   })
 
-  it('não deve chamar redis.del quando jti é undefined', async () => {
-    await logout('user-1', undefined)
-    expect(redis.del).not.toHaveBeenCalled()
+  it('deve rejeitar quando e-mail da sessão difere do convite', async () => {
+    const inv = {
+      id: 'inv-1',
+      familyId: 'family-1',
+      invitedById: 'admin',
+      email: 'membro@exemplo.com',
+      token: 'tok',
+      expiresAt: new Date(Date.now() + 86400000),
+      acceptedAt: null,
+      createdAt: new Date(),
+    }
+    vi.mocked(prisma.familyInvite.findUnique).mockResolvedValue(inv as never)
+
+    await expect(
+      acceptInvite('tok', { name: 'Maria' }, kcClaims({ email: 'outro@exemplo.com' })),
+    ).rejects.toMatchObject({ statusCode: 403 })
+  })
+})
+
+describe('findAuthUserByKeycloakSub', () => {
+  it('retorna null quando não há usuário', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null)
+    await expect(findAuthUserByKeycloakSub('x')).resolves.toBeNull()
+  })
+
+  it('retorna AuthUser quando encontrado', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUserRow as never)
+    const u = await findAuthUserByKeycloakSub('kc-sub-1')
+    expect(u?.id).toBe('user-1')
   })
 })

@@ -22,7 +22,7 @@ function dateOnlyUtcIso(d: Date): string {
 
 export async function listAccounts(familyId: string, query?: ListAccountsQueryInput) {
   const accounts = await prisma.account.findMany({
-    where: { familyId, isActive: true },
+    where: { familyId },
     orderBy: { createdAt: 'asc' },
   })
 

@@ -1,0 +1,68 @@
+{
+  "realm": "__KEYCLOAK_REALM__",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "verifyEmail": true,
+  "sslRequired": "external",
+  "clients": [
+    {
+      "clientId": "__KEYCLOAK_WEB_CLIENT_ID__",
+      "name": "Financas Familiar Web",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "__APP_URL__/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "__APP_URL__"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "__APP_URL__/*"
+      },
+      "defaultClientScopes": ["web-origins", "profile", "email", "roles"],
+      "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+    },
+    {
+      "clientId": "__KEYCLOAK_MCP_CLIENT_ID__",
+      "name": "Financas Familiar MCP",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "__KEYCLOAK_MCP_CLIENT_SECRET__",
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "redirectUris": [
+        "__MCP_PUBLIC_URL__/*"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "defaultClientScopes": ["profile", "email", "roles"],
+      "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+    },
+    {
+      "clientId": "__KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID__",
+      "name": "Financas Familiar Identity Admin",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "__KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET__",
+      "serviceAccountsEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ]
+}

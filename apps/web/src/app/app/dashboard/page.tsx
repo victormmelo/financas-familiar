@@ -25,6 +25,7 @@ import {
   formatMonthYearLabel,
 } from '@/lib/utils'
 import { useMediaQuery } from '@/lib/use-media-query'
+import { useAuthStore } from '@/stores/auth.store'
 import DashboardRouteLoading from './loading'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
@@ -75,6 +76,7 @@ function DashboardContent() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const isMdUp = useMediaQuery('(min-width: 768px)')
+  const authReady = useAuthStore((s) => s.bootstrapStatus === 'ready' && s.hasSessionToken && !!s.user)
   const now = currentMonth()
 
   const ano = searchParams.get('ano')
@@ -99,15 +101,16 @@ function DashboardContent() {
   const ym = `${year}-${String(month).padStart(2, '0')}`
   const lastDay = lastDayOfMonth(year, month)
 
-  const { data: accounts } = useAccounts({ asOfYear: year, asOfMonth: month })
+  const { data: accounts } = useAccounts({ asOfYear: year, asOfMonth: month, enabled: authReady })
   const { data: transactionsData } = useTransactions({
     status: 'CONFIRMED',
     startDate: `${ym}-01`,
     endDate: `${ym}-${String(lastDay).padStart(2, '0')}`,
     limit: 100,
+    enabled: authReady,
   })
-  const { data: budgets } = useBudgets({ referenceMonth: month, referenceYear: year })
-  const { data: goals } = useGoals()
+  const { data: budgets } = useBudgets({ referenceMonth: month, referenceYear: year, enabled: authReady })
+  const { data: goals } = useGoals({ enabled: authReady })
 
   const isCurrentMonth = year === now.year && month === now.month
   const canGoNext = compareYearMonth({ year, month }, now) < 0

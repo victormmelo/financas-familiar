@@ -119,7 +119,7 @@ describe('listAccounts', () => {
     expect(accounts).toHaveLength(1)
     expect(accounts[0].balance).toBe(1000)
     expect(prisma.account.findMany).toHaveBeenCalledWith({
-      where: { familyId: 'family-1', isActive: true },
+      where: { familyId: 'family-1' },
       orderBy: { createdAt: 'asc' },
     })
   })

@@ -15,10 +15,11 @@ export interface Goal {
   createdAt: string
 }
 
-export function useGoals() {
+export function useGoals(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['goals'],
     queryFn: () => api.get<Goal[]>('/goals'),
+    enabled: options?.enabled ?? true,
   })
 }
 

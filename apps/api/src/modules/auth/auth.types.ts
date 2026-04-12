@@ -1,12 +1,7 @@
 export interface TokenPayload {
-  sub: string       // userId
+  sub: string // userId interno (Prisma)
   familyId: string
   role: string
-}
-
-export interface AuthTokens {
-  accessToken: string
-  refreshToken: string
 }
 
 export interface AuthUser {

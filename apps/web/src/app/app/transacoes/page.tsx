@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Plus, Check, CheckCheck, Trash2, Pencil, Receipt, RotateCcw, Tag } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -143,7 +144,7 @@ export default function TransacoesPage() {
     if (!deleteId) return
     try {
       await remove.mutateAsync(deleteId)
-      toast('Transação excluída', 'success')
+      toast('Transação movida para a lixeira.', 'success')
     } catch {
       toast('Erro ao excluir', 'error')
     } finally {
@@ -210,7 +211,7 @@ export default function TransacoesPage() {
                 value={filters.status ?? ''}
                 onChange={(e) => setFilter('status', e.target.value)}
               >
-                <option value="">Todos os status</option>
+                <option value="">Todos (ativas)</option>
                 <option value="DRAFT">Rascunho</option>
                 <option value="CONFIRMED">Confirmado</option>
               </Select>
@@ -304,7 +305,15 @@ export default function TransacoesPage() {
       {/* Lista */}
       <Card>
         <CardHeader className="flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <CardTitle className="text-base font-semibold tracking-tight">Transações</CardTitle>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <CardTitle className="text-base font-semibold tracking-tight">Transações</CardTitle>
+            <Link
+              href="/app/transacoes/lixeira"
+              className="text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-[#7CFC98]"
+            >
+              Lixeira
+            </Link>
+          </div>
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
             {selected.size > 0 && (
               <div className="hidden flex-col gap-2 md:flex">
@@ -685,7 +694,7 @@ export default function TransacoesPage() {
         onClose={() => setDeleteId(null)}
         onConfirm={handleDelete}
         title="Excluir Transação"
-        description="Esta ação não pode ser desfeita. Deseja continuar?"
+        description="A transação vai para a lixeira. Você pode restaurá-la ou apagá-la definitivamente na página Lixeira."
         isLoading={remove.isPending}
       />
     </div>

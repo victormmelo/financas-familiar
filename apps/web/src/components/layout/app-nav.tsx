@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard,
@@ -18,8 +18,8 @@ import {
   KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { signOut } from 'next-auth/react'
 import { useAuthStore } from '@/stores/auth.store'
-import { api } from '@/lib/api'
 
 export const APP_NAV_ITEMS: readonly { href: string; label: string; icon: LucideIcon }[] = [
   { href: '/app/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -32,7 +32,7 @@ export const APP_NAV_ITEMS: readonly { href: string; label: string; icon: Lucide
   { href: '/app/orcamentos', label: 'Orçamentos', icon: PieChart },
   { href: '/app/relatorios', label: 'Relatórios', icon: FileText },
   { href: '/app/reconciliacao', label: 'Reconciliação', icon: RefreshCw },
-  { href: '/app/integracoes/mcp', label: 'Tokens MCP', icon: KeyRound },
+  { href: '/app/integracoes/mcp', label: 'Integrações MCP', icon: KeyRound },
 ]
 
 export function AppShellBrandRow({ className }: { className?: string }) {
@@ -92,16 +92,11 @@ export function AppNavLinks({
 
 export function AppNavUserFooter({ onBeforeAction }: { onBeforeAction?: () => void }) {
   const { user, clearAuth } = useAuthStore()
-  const router = useRouter()
 
   async function handleLogout() {
     onBeforeAction?.()
-    try {
-      await api.post('/auth/logout')
-    } finally {
-      clearAuth()
-      router.push('/auth/login')
-    }
+    clearAuth()
+    await signOut({ callbackUrl: '/auth/login' })
   }
 
   return (

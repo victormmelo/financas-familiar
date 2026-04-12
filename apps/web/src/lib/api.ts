@@ -1,6 +1,28 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+/** Base da API Fastify. `??` não cobre string vazia — aí o fetch vira relativo e bate no Next (:3000). */
+
+function resolvePublicApiUrl(): string {
+  const raw = process.env.NEXT_PUBLIC_API_URL
+  if (typeof raw === 'string' && raw.trim().length > 0) {
+    return raw.trim().replace(/\/+$/, '')
+  }
+  return 'http://localhost:3001'
+}
+
+const API_URL = resolvePublicApiUrl()
 
 let accessToken: string | null = null
+
+export class ApiClientError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, options: { status: number; code?: string }) {
+    super(message)
+    this.name = 'ApiClientError'
+    this.status = options.status
+    this.code = options.code
+  }
+}
 
 export function setAccessToken(token: string | null) {
   accessToken = token
@@ -10,62 +32,56 @@ export function getAccessToken(): string | null {
   return accessToken
 }
 
-async function refreshToken(): Promise<string | null> {
-  try {
-    const res = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    accessToken = data.accessToken
-    return accessToken
-  } catch {
-    return null
-  }
-}
+export async function apiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const incoming = (options.headers as Record<string, string> | undefined) ?? {}
+  const headers: Record<string, string> = { ...incoming }
 
-export async function apiFetch<T = unknown>(
-  path: string,
-  options: RequestInit = {},
-  retry = true,
-): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
+  const hasBody =
+    options.body !== undefined && options.body !== null && String(options.body).length > 0
+
+  if (hasBody && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json'
   }
 
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`
   }
-
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
     credentials: 'include',
   })
 
-  if (res.status === 401 && retry) {
-    const newToken = await refreshToken()
-    if (newToken) {
-      return apiFetch<T>(path, options, false)
-    }
-    // Clear token and redirect to login
-    accessToken = null
-    if (typeof window !== 'undefined') {
-      window.location.href = '/auth/login'
-    }
-    throw new Error('Não autenticado')
-  }
-
   if (res.status === 204) {
     return undefined as T
   }
 
-  const data = await res.json()
+  const text = await res.text()
+  let data: Record<string, unknown> = {}
+  if (text.length > 0) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      data = {}
+    }
+  }
+  if (res.status === 401) {
+    accessToken = null
+    throw new ApiClientError('Não autenticado', { status: 401, code: 'UNAUTHENTICATED' })
+  }
+
+  if (res.status === 403 && data.code === 'USER_NOT_PROVISIONED') {
+    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Cadastro incompleto', {
+      status: 403,
+      code: 'USER_NOT_PROVISIONED',
+    })
+  }
 
   if (!res.ok) {
-    throw new Error(data.message ?? 'Erro na requisição')
+    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Erro na requisição', {
+      status: res.status,
+      code: typeof data.code === 'string' ? data.code : undefined,
+    })
   }
 
   return data as T
@@ -76,7 +92,6 @@ export const api = {
   post: <T>(path: string, body?: unknown) =>
     apiFetch<T>(path, {
       method: 'POST',
-      // JSON.stringify(undefined) omite o body no fetch; Fastify exige corpo com application/json
       body: JSON.stringify(body ?? {}),
     }),
   patch: <T>(path: string, body?: unknown) =>
@@ -84,11 +99,9 @@ export const api = {
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
 }
 
-// Multipart upload — does NOT set Content-Type (browser sets it with boundary)
 export async function apiFetchMultipart<T = unknown>(
   path: string,
   formData: FormData,
-  retry = true,
 ): Promise<T> {
   const headers: Record<string, string> = {}
 
@@ -103,22 +116,36 @@ export async function apiFetchMultipart<T = unknown>(
     credentials: 'include',
   })
 
-  if (res.status === 401 && retry) {
-    const newToken = await refreshToken()
-    if (newToken) {
-      return apiFetchMultipart<T>(path, formData, false)
-    }
-    accessToken = null
-    if (typeof window !== 'undefined') {
-      window.location.href = '/auth/login'
-    }
-    throw new Error('Não autenticado')
+  if (res.status === 204) {
+    return undefined as T
   }
 
-  const data = await res.json()
+  const text = await res.text()
+  let data: Record<string, unknown> = {}
+  if (text.length > 0) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>
+    } catch {
+      data = {}
+    }
+  }
+  if (res.status === 401) {
+    accessToken = null
+    throw new ApiClientError('Não autenticado', { status: 401, code: 'UNAUTHENTICATED' })
+  }
+
+  if (res.status === 403 && data.code === 'USER_NOT_PROVISIONED') {
+    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Cadastro incompleto', {
+      status: 403,
+      code: 'USER_NOT_PROVISIONED',
+    })
+  }
 
   if (!res.ok) {
-    throw new Error(data.message ?? 'Erro no upload')
+    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Erro no upload', {
+      status: res.status,
+      code: typeof data.code === 'string' ? data.code : undefined,
+    })
   }
 
   return data as T

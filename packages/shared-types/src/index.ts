@@ -469,26 +469,66 @@ export interface StatementItemFilters {
   limit?: number
 }
 
-// ─── MCP tokens (integração Cursor / clientes MCP) ───────────────────────────
+// ─── MCP / Identity integrations ─────────────────────────────────────────────
 
-export interface McpTokenListItem {
+export interface IdentityIntegrationListItem {
   id: string
-  label: string
-  /** Valor mascarado para exibição; nunca o segredo completo. */
-  tokenPreview: string
+  name: string
+  description: string | null
+  keycloakClientId: string
+  role: Role
+  status: 'ACTIVE' | 'INACTIVE'
   lastUsedAt: string | null
+  revokedAt: string | null
   createdAt: string
+  updatedAt: string
 }
 
-export interface McpTokenCreated {
-  id: string
-  label: string
-  token: string
-  createdAt: string
+export interface IdentityIntegrationCreated {
+  integration: IdentityIntegrationListItem
+  clientId: string
+  clientSecret: string
 }
 
-export interface CreateMcpTokenInput {
-  label: string
+export interface IdentityIntegrationRotatedSecret {
+  integrationId: string
+  clientId: string
+  clientSecret: string
+}
+
+export interface CreateIdentityIntegrationInput {
+  name: string
+  description?: string
+  role: Role
+}
+
+export interface UpdateIdentityIntegrationInput {
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
+export interface IdentityMetadata {
+  issuer: string
+  realm: string
+  authorizationEndpoint: string
+  tokenEndpoint: string
+  jwksUri: string
+  endSessionEndpoint: string
+  webClientId: string
+  mcpClientId: string
+  mcpEndpoint: string
+}
+
+export interface ManagedIdentityClient {
+  clientId: string
+  kind: 'web' | 'mcp' | 'identity-admin' | 'integration'
+  status: 'ACTIVE' | 'INACTIVE'
+  familyId: string | null
+  integrationId: string | null
+  name: string
+}
+
+export interface IdentityClientsResponse {
+  clients: ManagedIdentityClient[]
 }
 
 // ─── BRL money (input mascarado vs número canônico) ───────────────────────────

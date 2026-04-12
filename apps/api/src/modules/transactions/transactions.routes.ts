@@ -25,6 +25,26 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
     return transactionsService.listRecurringTemplates(user.familyId)
   })
 
+  // POST /transactions/trash/empty — apaga definitivamente todas na lixeira (antes de /:id)
+  fastify.post('/trash/empty', async (request, reply) => {
+    const user = request.user as TokenPayload
+    const result = await transactionsService.emptyTransactionTrash(user.familyId)
+    return reply.status(200).send(result)
+  })
+
+  // POST /transactions/:id/restore
+  fastify.post<{ Params: { id: string } }>('/:id/restore', async (request) => {
+    const user = request.user as TokenPayload
+    return transactionsService.restoreTransaction(user.familyId, request.params.id)
+  })
+
+  // DELETE /transactions/:id/permanent
+  fastify.delete<{ Params: { id: string } }>('/:id/permanent', async (request, reply) => {
+    const user = request.user as TokenPayload
+    await transactionsService.permanentlyDeleteTransaction(user.familyId, request.params.id)
+    return reply.status(204).send()
+  })
+
   // GET /transactions/:id
   fastify.get<{ Params: { id: string } }>('/:id', async (request) => {
     const user = request.user as TokenPayload

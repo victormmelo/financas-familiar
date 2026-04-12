@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { KeyRound, Plus, Copy, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Copy, KeyRound, Plus, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -12,30 +12,57 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
 import { formatDate } from '@/lib/utils'
 import {
-  useMcpTokens,
-  useCreateMcpToken,
-  useRevokeMcpToken,
-  useRevealMcpToken,
-} from '@/hooks/use-mcp-tokens'
+  useCreateIdentityIntegration,
+  useIdentityIntegrations,
+  useIdentityMetadata,
+  useManagedIdentityClients,
+  useRevokeIdentityIntegration,
+  useRotateIntegrationSecret,
+  useUpdateIdentityIntegration,
+} from '@/hooks/use-identity-integrations'
 
 const createSchema = z.object({
-  label: z.string().min(1, 'Nome obrigatório').max(100, 'Máximo 100 caracteres'),
+  name: z.string().min(2, 'Nome obrigatório').max(100, 'Máximo 100 caracteres'),
+  description: z.string().max(280, 'Máximo 280 caracteres').optional(),
+  role: z.enum(['ADMIN', 'MEMBER']),
 })
 
 type CreateForm = z.infer<typeof createSchema>
 
-export default function McpTokensPage() {
-  const { data: tokens, isLoading } = useMcpTokens()
-  const createToken = useCreateMcpToken()
-  const revokeToken = useRevokeMcpToken()
-  const revealToken = useRevealMcpToken()
+type SecretDialogState =
+  | { title: string; clientId: string; clientSecret: string }
+  | null
+
+function StatusBadge({ status }: { status: 'ACTIVE' | 'INACTIVE' }) {
+  return (
+    <Badge
+      className={
+        status === 'ACTIVE'
+          ? 'border-[#7CFC98]/40 bg-[#1E281E] text-[#7CFC98]'
+          : 'border-amber-500/30 bg-amber-950/20 text-amber-300'
+      }
+    >
+      {status === 'ACTIVE' ? 'Ativa' : 'Inativa'}
+    </Badge>
+  )
+}
+
+export default function McpIntegrationsPage() {
+  const { data: integrations, isLoading } = useIdentityIntegrations()
+  const { data: metadata } = useIdentityMetadata()
+  const { data: clients } = useManagedIdentityClients()
+  const createIntegration = useCreateIdentityIntegration()
+  const updateIntegration = useUpdateIdentityIntegration()
+  const rotateSecret = useRotateIntegrationSecret()
+  const revokeIntegration = useRevokeIdentityIntegration()
   const { toast } = useToast()
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [newTokenValue, setNewTokenValue] = useState<string | null>(null)
+  const [secretDialog, setSecretDialog] = useState<SecretDialogState>(null)
   const [revokeId, setRevokeId] = useState<string | null>(null)
 
   const {
@@ -45,135 +72,259 @@ export default function McpTokensPage() {
     formState: { errors, isSubmitting },
   } = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
-    defaultValues: { label: 'Cursor' },
+    defaultValues: { name: 'Integração MCP', description: '', role: 'MEMBER' },
   })
 
-  async function onCreateSubmit(values: CreateForm) {
+  const baseClients = useMemo(
+    () => clients?.filter((client) => client.kind !== 'integration') ?? [],
+    [clients],
+  )
+
+  async function copy(text: string, success: string) {
     try {
-      const created = await createToken.mutateAsync({ label: values.label.trim() })
-      setCreateOpen(false)
-      reset({ label: 'Cursor' })
-      setNewTokenValue(created.token)
-      toast('Token criado', 'success')
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Erro ao criar token', 'error')
+      await navigator.clipboard.writeText(text)
+      toast(success, 'success')
+    } catch {
+      toast('Não foi possível copiar', 'error')
     }
   }
 
-  async function handleCopyExisting(id: string) {
+  async function onCreateSubmit(values: CreateForm) {
     try {
-      const token = await revealToken.mutateAsync(id)
-      await navigator.clipboard.writeText(token)
-      toast('Token copiado para a área de transferência', 'success')
+      const result = await createIntegration.mutateAsync({
+        name: values.name.trim(),
+        description: values.description?.trim() || undefined,
+        role: values.role,
+      })
+      setCreateOpen(false)
+      reset({ name: 'Integração MCP', description: '', role: 'MEMBER' })
+      setSecretDialog({
+        title: 'Guarde estas credenciais',
+        clientId: result.clientId,
+        clientSecret: result.clientSecret,
+      })
+      toast('Integração criada', 'success')
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Erro ao copiar', 'error')
+      toast(err instanceof Error ? err.message : 'Erro ao criar integração', 'error')
+    }
+  }
+
+  async function handleRotate(id: string) {
+    try {
+      const result = await rotateSecret.mutateAsync(id)
+      setSecretDialog({
+        title: 'Novo client secret gerado',
+        clientId: result.clientId,
+        clientSecret: result.clientSecret,
+      })
+      toast('Secret rotacionado', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao rotacionar secret', 'error')
+    }
+  }
+
+  async function handleStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
+    try {
+      await updateIntegration.mutateAsync({ id, input: { status } })
+      toast(status === 'ACTIVE' ? 'Integração ativada' : 'Integração inativada', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao atualizar status', 'error')
     }
   }
 
   async function handleRevoke() {
     if (!revokeId) return
     try {
-      await revokeToken.mutateAsync(revokeId)
-      toast('Token revogado', 'success')
+      await revokeIntegration.mutateAsync(revokeId)
+      toast('Integração revogada', 'success')
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Erro ao revogar', 'error')
+      toast(err instanceof Error ? err.message : 'Erro ao revogar integração', 'error')
     } finally {
       setRevokeId(null)
     }
   }
 
-  async function copyNewToken() {
-    if (!newTokenValue) return
-    try {
-      await navigator.clipboard.writeText(newTokenValue)
-      toast('Copiado', 'success')
-    } catch {
-      toast('Não foi possível copiar', 'error')
-    }
-  }
-
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground flex items-center gap-2">
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
           <KeyRound className="h-7 w-7 text-[#7CFC98]" />
-          Tokens MCP
+          Integrações MCP
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gere tokens para conectar o Cursor (ou outro cliente MCP) ao servidor Finanças Familiar. O valor completo
-          não fica visível na listagem; use copiar quando precisar.
+        <p className="mt-1 text-sm text-muted-foreground">
+          Gerencie clients OAuth/OIDC para uso humano ou server-to-server sem depender do console do Keycloak.
         </p>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Metadados OIDC</CardTitle>
+            <CardDescription>Esses endpoints alimentam clientes MCP e automações externas.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {!metadata ? (
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : (
+              <>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Issuer</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.issuer}</p>
+                </div>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Token endpoint</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.tokenEndpoint}</p>
+                </div>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">MCP endpoint</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.mcpEndpoint}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void copy(metadata.tokenEndpoint, 'Token endpoint copiado')}>
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    Copiar token endpoint
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void copy(metadata.mcpEndpoint, 'MCP endpoint copiado')}>
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    Copiar MCP endpoint
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Clients base</CardTitle>
+            <CardDescription>Estrutura controlada pelo projeto e pelo bootstrap declarativo.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {!baseClients.length ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              baseClients.map((client) => (
+                <div key={client.clientId} className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-foreground">{client.name}</p>
+                      <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{client.clientId}</p>
+                    </div>
+                    <StatusBadge status={client.status} />
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="border-border bg-card">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Segurança</CardTitle>
           <CardDescription>
-            Trate cada token como senha: quem possui pode acessar os dados da sua família via MCP. Revogue se vazar ou
-            não usar mais.
+            Client secrets são exibidos apenas na criação e na rotação. Trate-os como senha e armazene em local seguro.
           </CardDescription>
         </CardHeader>
+        <CardContent className="flex items-start gap-3 text-sm text-muted-foreground">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#7CFC98]" />
+          <p>
+            Integrações pertencem a uma única família. O papel selecionado controla o que a integração consegue fazer no
+            MCP dentro desse tenant.
+          </p>
+        </CardContent>
       </Card>
 
       <div className="flex justify-end">
         <Button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="bg-[#1E281E] text-[#7CFC98] border border-[#7CFC98]/40 hover:bg-[#253025]"
+          className="border border-[#7CFC98]/40 bg-[#1E281E] text-[#7CFC98] hover:bg-[#253025]"
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Gerar novo token
+          <Plus className="mr-2 h-4 w-4" />
+          Nova integração
         </Button>
       </div>
 
       <Card className="border-border">
         <CardHeader>
-          <CardTitle className="text-base">Seus tokens</CardTitle>
-          <CardDescription>Ativos — revogados somem da lista.</CardDescription>
+          <CardTitle className="text-base">Integrações técnicas</CardTitle>
+          <CardDescription>Clients confidenciais criados pela sua UI para uso no MCP e em fluxos server-to-server.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="space-y-3">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
             </div>
-          ) : !tokens?.length ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">Nenhum token ainda. Gere um para começar.</p>
+          ) : !integrations?.length ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma integração ainda. Crie a primeira para começar.</p>
           ) : (
-            <ul className="divide-y divide-border rounded-sm border border-border overflow-hidden">
-              {tokens.map((t) => (
+            <ul className="overflow-hidden rounded-sm border border-border divide-y divide-border">
+              {integrations.map((integration) => (
                 <li
-                  key={t.id}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between bg-[#111611]/50"
+                  key={integration.id}
+                  className="flex flex-col gap-4 bg-[#111611]/50 p-4 xl:flex-row xl:items-center xl:justify-between"
                 >
                   <div className="min-w-0 flex-1 space-y-1">
-                    <p className="font-medium text-foreground">{t.label}</p>
-                    <p className="font-mono text-xs text-muted-foreground break-all">{t.tokenPreview}</p>
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                      Criado {formatDate(t.createdAt)}
-                      {t.lastUsedAt ? ` · Último uso ${formatDate(t.lastUsedAt)}` : ' · Nunca usado'}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-foreground">{integration.name}</p>
+                      <StatusBadge status={integration.status} />
+                      <Badge variant="outline" className="border-border text-muted-foreground">
+                        {integration.role}
+                      </Badge>
+                    </div>
+                    {integration.description ? <p className="text-sm text-muted-foreground">{integration.description}</p> : null}
+                    <p className="break-all font-mono text-xs text-muted-foreground">{integration.keycloakClientId}</p>
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Criada {formatDate(integration.createdAt)}
+                      {integration.lastUsedAt ? ` · Último uso ${formatDate(integration.lastUsedAt)}` : ' · Nunca usada'}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className="border-border"
-                      disabled={revealToken.isPending}
-                      onClick={() => void handleCopyExisting(t.id)}
+                      onClick={() => void copy(integration.keycloakClientId, 'Client ID copiado')}
                     >
-                      <Copy className="h-3.5 w-3.5 mr-1.5" />
-                      Copiar
+                      <Copy className="mr-1.5 h-3.5 w-3.5" />
+                      Client ID
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-border"
+                      disabled={rotateSecret.isPending}
+                      onClick={() => void handleRotate(integration.id)}
+                    >
+                      <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+                      Rotacionar secret
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-border"
+                      disabled={updateIntegration.isPending}
+                      onClick={() => void handleStatus(integration.id, integration.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')}
+                    >
+                      {integration.status === 'ACTIVE' ? 'Inativar' : 'Ativar'}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                      onClick={() => setRevokeId(t.id)}
+                      onClick={() => setRevokeId(integration.id)}
                     >
-                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                       Revogar
                     </Button>
                   </div>
@@ -188,22 +339,28 @@ export default function McpTokensPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         className="max-w-md"
-        preventClose={isSubmitting || createToken.isPending}
+        preventClose={isSubmitting || createIntegration.isPending}
       >
-        <DialogHeader title="Novo token MCP" onClose={() => setCreateOpen(false)} />
+        <DialogHeader title="Nova integração MCP" onClose={() => setCreateOpen(false)} />
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onCreateSubmit)}>
           <DialogBody className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Um nome ajuda a lembrar onde você usou (ex.: Cursor, notebook).
-            </p>
             <div className="space-y-1.5">
               <Label>Nome</Label>
-              <Input
-                placeholder="Cursor"
-                className="font-mono text-sm"
-                error={errors.label?.message}
-                {...register('label')}
-              />
+              <Input placeholder="ERP da família" error={errors.name?.message} {...register('name')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Descrição</Label>
+              <Input placeholder="Sincronização server-to-server" error={errors.description?.message} {...register('description')} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Papel da integração</Label>
+              <select
+                className="flex h-10 w-full rounded-sm border border-input bg-background px-3 text-sm"
+                {...register('role')}
+              >
+                <option value="MEMBER">MEMBER</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
             </div>
           </DialogBody>
           <DialogFooter>
@@ -212,31 +369,38 @@ export default function McpTokensPage() {
             </Button>
             <Button
               type="submit"
-              disabled={createToken.isPending || isSubmitting}
-              className="bg-[#1E281E] text-[#7CFC98] border border-[#7CFC98]/40"
+              disabled={createIntegration.isPending || isSubmitting}
+              className="border border-[#7CFC98]/40 bg-[#1E281E] text-[#7CFC98]"
             >
-              {createToken.isPending ? 'Gerando…' : 'Gerar token'}
+              {createIntegration.isPending ? 'Criando…' : 'Criar integração'}
             </Button>
           </DialogFooter>
         </form>
       </Dialog>
 
-      <Dialog open={!!newTokenValue} onClose={() => setNewTokenValue(null)} className="max-w-lg">
-        <DialogHeader title="Guarde este token" onClose={() => setNewTokenValue(null)} />
+      <Dialog open={secretDialog !== null} onClose={() => setSecretDialog(null)} className="max-w-lg">
+        <DialogHeader title={secretDialog?.title ?? 'Credenciais'} onClose={() => setSecretDialog(null)} />
         <DialogBody className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Copie agora para o <code className="text-xs bg-muted px-1 rounded">mcp.json</code> ou outro cliente. Se
-            fechar sem copiar, use o botão <strong>Copiar</strong> na lista quando precisar do valor completo.
+            Copie agora. O segredo não volta a aparecer na listagem por segurança.
           </p>
-          <Input readOnly value={newTokenValue ?? ''} className="font-mono text-xs h-auto py-2" />
+          <div className="space-y-1.5">
+            <Label>Client ID</Label>
+            <Input readOnly value={secretDialog?.clientId ?? ''} className="font-mono text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client secret</Label>
+            <Input readOnly value={secretDialog?.clientSecret ?? ''} className="font-mono text-sm" />
+          </div>
         </DialogBody>
         <DialogFooter>
-          <Button type="button" onClick={() => void copyNewToken()} variant="secondary">
-            <Copy className="h-4 w-4 mr-2" />
-            Copiar token
-          </Button>
-          <Button type="button" onClick={() => setNewTokenValue(null)}>
-            Concluí
+          <Button
+            type="button"
+            onClick={() => void copy(`${secretDialog?.clientId ?? ''}\n${secretDialog?.clientSecret ?? ''}`, 'Credenciais copiadas')}
+            className="border border-[#7CFC98]/40 bg-[#1E281E] text-[#7CFC98]"
+          >
+            <Copy className="mr-1.5 h-3.5 w-3.5" />
+            Copiar credenciais
           </Button>
         </DialogFooter>
       </Dialog>
@@ -244,12 +408,12 @@ export default function McpTokensPage() {
       <ConfirmDialog
         open={revokeId !== null}
         onClose={() => setRevokeId(null)}
-        title="Revogar token?"
-        description="Clientes que usam este token deixarão de funcionar imediatamente."
+        title="Revogar integração?"
+        description="O client será desativado imediatamente no Keycloak e deixará de autenticar no MCP."
         confirmLabel="Revogar"
-        variant="destructive"
-        isLoading={revokeToken.isPending}
+        cancelLabel="Cancelar"
         onConfirm={() => void handleRevoke()}
+        variant="destructive"
       />
     </div>
   )

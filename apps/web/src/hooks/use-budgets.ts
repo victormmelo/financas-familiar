@@ -14,11 +14,17 @@ export interface Budget {
   isOverBudget: boolean
 }
 
-export function useBudgets(params?: { referenceMonth?: number; referenceYear?: number }) {
-  const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+export function useBudgets(params?: { referenceMonth?: number; referenceYear?: number; enabled?: boolean }) {
+  const { enabled = true, ...queryParams } = params ?? {}
+  const qs = new URLSearchParams(
+    Object.entries(queryParams)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)]),
+  ).toString()
   return useQuery({
     queryKey: ['budgets', params],
     queryFn: () => api.get<Budget[]>(`/budgets${qs ? `?${qs}` : ''}`),
+    enabled,
   })
 }
 

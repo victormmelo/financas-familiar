@@ -1,6 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import { setAccessToken } from '@/lib/api'
 
 interface User {
   id: string
@@ -11,29 +9,31 @@ interface User {
   familyName?: string
 }
 
+export type AuthBootstrapStatus = 'idle' | 'loading' | 'ready' | 'error'
+
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
-  setAuth: (user: User, accessToken: string) => void
+  bootstrapStatus: AuthBootstrapStatus
+  hasSessionToken: boolean
+  setUser: (user: User | null) => void
+  setBootstrapStatus: (status: AuthBootstrapStatus) => void
+  setHasSessionToken: (hasSessionToken: boolean) => void
   clearAuth: () => void
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist<AuthState>(
-    (set) => ({
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  isAuthenticated: false,
+  bootstrapStatus: 'idle',
+  hasSessionToken: false,
+  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setBootstrapStatus: (bootstrapStatus) => set({ bootstrapStatus }),
+  setHasSessionToken: (hasSessionToken) => set({ hasSessionToken }),
+  clearAuth: () =>
+    set({
       user: null,
       isAuthenticated: false,
-      setAuth: (user: User, accessToken: string) => {
-        setAccessToken(accessToken)
-        set({ user, isAuthenticated: true })
-      },
-      clearAuth: () => {
-        setAccessToken(null)
-        set({ user: null, isAuthenticated: false })
-      },
+      hasSessionToken: false,
     }),
-    {
-      name: 'auth-storage',
-    },
-  ),
-)
+}))

@@ -74,7 +74,7 @@ export function ImportStatementForm({ open, onClose }: Props) {
                 required
               >
                 <option value="">Selecione uma conta</option>
-                {accounts?.map((a) => (
+                {accounts?.filter((a) => a.isActive).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

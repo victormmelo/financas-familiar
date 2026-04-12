@@ -14,12 +14,17 @@ export async function listTransactions(familyId: string, query: ListTransactions
   const { page, limit, accountId, categoryId, type, status, startDate, endDate, isRecurring } = query
   const skip = (page - 1) * limit
 
+  const statusWhere =
+    status === undefined
+      ? { status: { not: 'DELETED' as const } }
+      : { status }
+
   const where = {
     familyId,
     ...(accountId && { accountId }),
     ...(categoryId && { categoryId }),
     ...(type && { type }),
-    ...(status && { status }),
+    ...statusWhere,
     ...(isRecurring !== undefined && { isRecurring }),
     ...(startDate || endDate
       ? {
@@ -359,4 +364,55 @@ export async function deleteTransaction(familyId: string, transactionId: string)
     where: { id: transactionId },
     data: { status: 'DELETED' },
   })
+}
+
+export async function restoreTransaction(familyId: string, transactionId: string) {
+  const transaction = await prisma.transaction.findFirst({
+    where: { id: transactionId, familyId, status: 'DELETED' },
+  })
+  if (!transaction) throw Object.assign(new Error('Transação não encontrada na lixeira'), { statusCode: 404 })
+
+  const nextStatus = transaction.confirmedAt ? 'CONFIRMED' : 'DRAFT'
+
+  return prisma.transaction.update({
+    where: { id: transactionId },
+    data: { status: nextStatus },
+    include: {
+      account: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, type: true } },
+      createdBy: { select: { id: true, name: true } },
+    },
+  })
+}
+
+export async function permanentlyDeleteTransaction(familyId: string, transactionId: string) {
+  const transaction = await prisma.transaction.findFirst({
+    where: { id: transactionId, familyId, status: 'DELETED' },
+  })
+  if (!transaction) throw Object.assign(new Error('Transação não encontrada na lixeira'), { statusCode: 404 })
+
+  const transferId = transaction.transferId
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transactionDraft.deleteMany({ where: { transactionId } })
+    await tx.transaction.delete({ where: { id: transactionId } })
+    if (transferId) {
+      const remaining = await tx.transaction.count({ where: { transferId } })
+      if (remaining === 0) {
+        await tx.transfer.delete({ where: { id: transferId } })
+      }
+    }
+  })
+}
+
+/** Remove todas as transações em status DELETED da família (delete físico). */
+export async function emptyTransactionTrash(familyId: string): Promise<{ deleted: number }> {
+  const rows = await prisma.transaction.findMany({
+    where: { familyId, status: 'DELETED' },
+    select: { id: true },
+  })
+  for (const { id } of rows) {
+    await permanentlyDeleteTransaction(familyId, id)
+  }
+  return { deleted: rows.length }
 }

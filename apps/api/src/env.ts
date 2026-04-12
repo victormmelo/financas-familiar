@@ -3,6 +3,12 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 
+const emptyStringToUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => {
+    if (typeof value === 'string' && value.trim() === '') return undefined
+    return value
+  }, schema)
+
 /** Fonte principal: `.env` na raiz do monorepo. Se existir `apps/api/.env`, aplica depois (override local). */
 function loadDotenvFromAncestors(): void {
   const found: string[] = []
@@ -25,12 +31,17 @@ const envSchema = z.object({
   // Required
   DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
   REDIS_URL: z.string().min(1, 'REDIS_URL é obrigatória'),
-  JWT_ACCESS_SECRET: z
-    .string()
-    .min(32, 'JWT_ACCESS_SECRET deve ter ao menos 32 caracteres'),
-  JWT_REFRESH_SECRET: z
-    .string()
-    .min(32, 'JWT_REFRESH_SECRET deve ter ao menos 32 caracteres'),
+  KEYCLOAK_BASE_URL: z.string().url('KEYCLOAK_BASE_URL deve ser uma URL (ex.: http://localhost:8080)'),
+  KEYCLOAK_REALM: z.string().min(1, 'KEYCLOAK_REALM é obrigatório'),
+  KEYCLOAK_ISSUER: z.string().url('KEYCLOAK_ISSUER deve ser uma URL (ex.: http://localhost:8080/realms/financas-familiar)'),
+  KEYCLOAK_AUDIENCE: z.string().min(1, 'KEYCLOAK_AUDIENCE é obrigatório (client id OIDC)'),
+  KEYCLOAK_WEB_CLIENT_ID: z.string().min(1, 'KEYCLOAK_WEB_CLIENT_ID é obrigatório'),
+  KEYCLOAK_MCP_CLIENT_ID: z.string().min(1, 'KEYCLOAK_MCP_CLIENT_ID é obrigatório'),
+  KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID: z.string().min(1, 'KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID é obrigatório'),
+  KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET: z.string().min(1).optional(),
+  KEYCLOAK_ADMIN_USERNAME: z.string().min(1).optional(),
+  KEYCLOAK_ADMIN_PASSWORD: z.string().min(1).optional(),
+  KEYCLOAK_JWKS_URI: emptyStringToUndefined(z.string().url().optional()),
 
   // App
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -38,6 +49,7 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().optional(),
   COOKIE_SECRET: z.string().min(32).optional(),
   APP_URL: z.string().url().optional(),
+  MCP_PUBLIC_URL: z.string().url().optional(),
 
   // Email (opcional em dev)
   SMTP_HOST: z.string().optional(),

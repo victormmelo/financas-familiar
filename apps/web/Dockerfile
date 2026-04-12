@@ -18,9 +18,26 @@ COPY package.json ./
 # Garante `public/` para o COPY no runner (projeto pode não ter a pasta no repo)
 RUN mkdir -p apps/web/public
 ENV NEXT_TELEMETRY_DISABLED=1
-# NEXT_PUBLIC_* são baked em build time — passe via --build-arg no docker build
-ARG NEXT_PUBLIC_API_URL
+# NEXT_PUBLIC_* e Auth.js — bake em build time (docker build --build-arg …)
+# Sem default, ARG vazio embute URL vazia no cliente e o fetch vira /accounts no :3000 (404).
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG AUTH_SECRET
+ENV AUTH_SECRET=$AUTH_SECRET
+ARG AUTH_URL
+ENV AUTH_URL=$AUTH_URL
+ARG NEXTAUTH_URL
+ENV NEXTAUTH_URL=$NEXTAUTH_URL
+ARG NEXTAUTH_URL_INTERNAL
+ENV NEXTAUTH_URL_INTERNAL=$NEXTAUTH_URL_INTERNAL
+ARG AUTH_TRUST_HOST
+ENV AUTH_TRUST_HOST=$AUTH_TRUST_HOST
+ARG AUTH_KEYCLOAK_ID
+ENV AUTH_KEYCLOAK_ID=$AUTH_KEYCLOAK_ID
+ARG AUTH_KEYCLOAK_SECRET
+ENV AUTH_KEYCLOAK_SECRET=$AUTH_KEYCLOAK_SECRET
+ARG AUTH_KEYCLOAK_ISSUER
+ENV AUTH_KEYCLOAK_ISSUER=$AUTH_KEYCLOAK_ISSUER
 RUN npm run build --workspace=apps/web
 
 # --- runner: serve the built app ---

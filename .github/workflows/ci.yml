@@ -15,6 +15,9 @@ jobs:
   quality:
     name: Lint & Typecheck
     runs-on: ubuntu-latest
+    env:
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/ci
+      KEYCLOAK_AUDIENCE: financas-web-ci
 
     steps:
       - uses: actions/checkout@v4
@@ -70,11 +73,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://financas:financas_password@localhost:5432/financas_familiar_test
       REDIS_URL: redis://localhost:6379
-      JWT_ACCESS_SECRET: ci_jwt_access_secret_must_be_at_least_32_chars_long
-      JWT_REFRESH_SECRET: ci_jwt_refresh_secret_must_be_at_least_32_chars_long
       COOKIE_SECRET: ci_cookie_secret_must_be_at_least_32_chars_long
-      JWT_ACCESS_EXPIRES_IN: 15m
-      JWT_REFRESH_EXPIRES_IN: 7d
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/ci
+      KEYCLOAK_AUDIENCE: financas-web-ci
       NODE_ENV: test
 
     steps:
@@ -125,3 +126,11 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
           NEXT_PUBLIC_API_URL: http://localhost:3001
+          AUTH_SECRET: ci_auth_secret_must_be_at_least_32_chars_long_ok
+          AUTH_URL: http://localhost:3000
+          AUTH_TRUST_HOST: "true"
+          AUTH_KEYCLOAK_ID: financas-web-ci
+          AUTH_KEYCLOAK_SECRET: ""
+          AUTH_KEYCLOAK_ISSUER: http://localhost:8080/realms/ci
+          KEYCLOAK_ISSUER: http://localhost:8080/realms/ci
+          KEYCLOAK_AUDIENCE: financas-web-ci

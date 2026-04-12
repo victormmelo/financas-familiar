@@ -1,13 +1,10 @@
 import '../src/env'
 import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcrypt'
 
 const prisma = new PrismaClient()
 
 async function main() {
   console.log('Seeding database...')
-
-  const passwordHash = await bcrypt.hash('senha123', 12)
 
   const family = await prisma.family.upsert({
     where: { id: 'seed-family-id' },
@@ -15,18 +12,6 @@ async function main() {
     create: {
       id: 'seed-family-id',
       name: 'Família Silva',
-    },
-  })
-
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@exemplo.com' },
-    update: {},
-    create: {
-      familyId: family.id,
-      name: 'Carlos Silva',
-      email: 'admin@exemplo.com',
-      passwordHash,
-      role: 'ADMIN',
     },
   })
 
@@ -77,7 +62,7 @@ async function main() {
 
   console.log(`✅ Seed complete!`)
   console.log(`   Family: ${family.name} (${family.id})`)
-  console.log(`   Admin: ${admin.email} / senha123`)
+  console.log('   Autenticação: Keycloak + POST /auth/bootstrap para criar o primeiro usuário ADMIN.')
 }
 
 main()

@@ -3,6 +3,7 @@ import { Decimal } from '@prisma/client/runtime/library'
 
 vi.mock('../../lib/prisma.js', () => ({
   prisma: {
+    $transaction: vi.fn(),
     transaction: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -10,6 +11,13 @@ vi.mock('../../lib/prisma.js', () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
       count: vi.fn(),
+      delete: vi.fn(),
+    },
+    transactionDraft: {
+      deleteMany: vi.fn(),
+    },
+    transfer: {
+      delete: vi.fn(),
     },
     account: {
       findFirst: vi.fn(),
@@ -29,6 +37,9 @@ import {
   bulkSetCategory,
   updateTransaction,
   deleteTransaction,
+  restoreTransaction,
+  permanentlyDeleteTransaction,
+  emptyTransactionTrash,
 } from './transactions.service.js'
 
 const mockTransaction = {
@@ -68,6 +79,9 @@ const mockCategory = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(prisma.$transaction).mockImplementation(async (fn) => {
+    await fn(prisma as never)
+  })
 })
 
 describe('listTransactions', () => {
@@ -82,7 +96,23 @@ describe('listTransactions', () => {
     expect(result.pagination.pages).toBe(1)
     expect(prisma.transaction.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ familyId: 'family-1' }),
+        where: expect.objectContaining({
+          familyId: 'family-1',
+          status: { not: 'DELETED' },
+        }),
+      }),
+    )
+  })
+
+  it('deve listar apenas lixeira quando status é DELETED', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([])
+    vi.mocked(prisma.transaction.count).mockResolvedValue(0)
+
+    await listTransactions('family-1', { page: 1, limit: 20, status: 'DELETED' })
+
+    expect(prisma.transaction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ familyId: 'family-1', status: 'DELETED' }),
       }),
     )
   })
@@ -343,5 +373,118 @@ describe('deleteTransaction', () => {
     vi.mocked(prisma.transaction.findFirst).mockResolvedValue(null)
 
     await expect(deleteTransaction('family-2', 'tx-1')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('restoreTransaction', () => {
+  it('deve restaurar para CONFIRMED quando havia confirmedAt', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      status: 'DELETED',
+      confirmedAt: new Date('2026-04-02'),
+    } as never)
+    vi.mocked(prisma.transaction.update).mockResolvedValue({
+      ...mockTransaction,
+      status: 'CONFIRMED',
+    } as never)
+
+    await restoreTransaction('family-1', 'tx-1')
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tx-1' },
+        data: { status: 'CONFIRMED' },
+      }),
+    )
+  })
+
+  it('deve restaurar para DRAFT quando não confirmada', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      status: 'DELETED',
+      confirmedAt: null,
+    } as never)
+    vi.mocked(prisma.transaction.update).mockResolvedValue(mockTransaction as never)
+
+    await restoreTransaction('family-1', 'tx-1')
+
+    expect(prisma.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tx-1' },
+        data: { status: 'DRAFT' },
+      }),
+    )
+  })
+
+  it('deve lançar 404 quando não está na lixeira', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue(null)
+    await expect(restoreTransaction('family-1', 'tx-x')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('permanentlyDeleteTransaction', () => {
+  it('deve apagar draft, transação e não remover transfer se ainda houver pernas', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      status: 'DELETED',
+      transferId: 'tr-1',
+    } as never)
+    vi.mocked(prisma.transactionDraft.deleteMany).mockResolvedValue({ count: 1 } as never)
+    vi.mocked(prisma.transaction.delete).mockResolvedValue(mockTransaction as never)
+    vi.mocked(prisma.transaction.count).mockResolvedValue(1)
+
+    await permanentlyDeleteTransaction('family-1', 'tx-1')
+
+    expect(prisma.transactionDraft.deleteMany).toHaveBeenCalledWith({ where: { transactionId: 'tx-1' } })
+    expect(prisma.transaction.delete).toHaveBeenCalledWith({ where: { id: 'tx-1' } })
+    expect(prisma.transfer.delete).not.toHaveBeenCalled()
+  })
+
+  it('deve remover transfer quando não restarem transações ligadas', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      status: 'DELETED',
+      transferId: 'tr-1',
+    } as never)
+    vi.mocked(prisma.transactionDraft.deleteMany).mockResolvedValue({ count: 0 } as never)
+    vi.mocked(prisma.transaction.delete).mockResolvedValue(mockTransaction as never)
+    vi.mocked(prisma.transaction.count).mockResolvedValue(0)
+
+    await permanentlyDeleteTransaction('family-1', 'tx-1')
+
+    expect(prisma.transfer.delete).toHaveBeenCalledWith({ where: { id: 'tr-1' } })
+  })
+
+  it('deve lançar 404 quando não está na lixeira', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue(null)
+    await expect(permanentlyDeleteTransaction('family-1', 'tx-x')).rejects.toMatchObject({
+      statusCode: 404,
+    })
+  })
+})
+
+describe('emptyTransactionTrash', () => {
+  it('deve apagar todas as transações DELETED da família', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-a' }, { id: 'tx-b' }] as never)
+    vi.mocked(prisma.transaction.findFirst)
+      .mockResolvedValueOnce({
+        ...mockTransaction,
+        id: 'tx-a',
+        status: 'DELETED',
+        transferId: null,
+      } as never)
+      .mockResolvedValueOnce({
+        ...mockTransaction,
+        id: 'tx-b',
+        status: 'DELETED',
+        transferId: null,
+      } as never)
+    vi.mocked(prisma.transactionDraft.deleteMany).mockResolvedValue({ count: 0 } as never)
+    vi.mocked(prisma.transaction.delete).mockResolvedValue(mockTransaction as never)
+
+    const result = await emptyTransactionTrash('family-1')
+
+    expect(result).toEqual({ deleted: 2 })
+    expect(prisma.transaction.delete).toHaveBeenCalledTimes(2)
   })
 })

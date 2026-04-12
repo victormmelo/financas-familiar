@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -43,8 +44,22 @@ export function AccountForm({ open, onClose, account }: Props) {
     resolver: zodResolver(schema),
     defaultValues: account
       ? { name: account.name, type: account.type, initialBalance: account.initialBalance, color: account.color }
-      : { type: 'CHECKING', initialBalance: 0 },
+      : { name: '', type: 'CHECKING', initialBalance: 0 },
   })
+
+  useEffect(() => {
+    if (!open) return
+    reset(
+      account
+        ? {
+            name: account.name,
+            type: account.type,
+            initialBalance: account.initialBalance,
+            color: account.color || undefined,
+          }
+        : { name: '', type: 'CHECKING', initialBalance: 0, color: undefined },
+    )
+  }, [open, account, reset])
 
   async function onSubmit(data: FormData) {
     try {
@@ -52,9 +67,12 @@ export function AccountForm({ open, onClose, account }: Props) {
         await update.mutateAsync({ id: account.id, name: data.name, type: data.type, color: data.color })
         toast('Conta atualizada!', 'success')
       } else {
+        const initial = typeof data.initialBalance === 'number' && !Number.isNaN(data.initialBalance)
+          ? data.initialBalance
+          : 0
         await create.mutateAsync({
           ...data,
-          initialBalance: normalizeReaisForApi(data.initialBalance),
+          initialBalance: normalizeReaisForApi(initial),
         })
         toast('Conta criada!', 'success')
       }

@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -74,6 +75,14 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
   const create = useCreateTransaction()
   const update = useUpdateTransaction()
   const { toast } = useToast()
+
+  const selectableAccounts = useMemo(() => {
+    if (!accounts) return []
+    if (transaction) {
+      return accounts.filter((a) => a.isActive || a.id === transaction.accountId)
+    }
+    return accounts.filter((a) => a.isActive)
+  }, [accounts, transaction])
 
   const {
     register,
@@ -242,7 +251,7 @@ export function TransactionForm({ open, onClose, transaction }: Props) {
             <Label>Conta</Label>
             <Select error={errors.accountId?.message} {...register('accountId')}>
               <option value="">Selecione uma conta</option>
-              {accounts?.map((a) => (
+              {selectableAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
                 </option>

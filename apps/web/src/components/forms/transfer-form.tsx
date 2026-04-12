@@ -73,7 +73,7 @@ export function TransferForm({ open, onClose }: Props) {
             <Label>Conta de Origem</Label>
             <Select error={errors.fromAccountId?.message} {...register('fromAccountId')}>
               <option value="">Selecione</option>
-              {accounts?.map((a) => (
+              {accounts?.filter((a) => a.isActive).map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </Select>
@@ -82,7 +82,7 @@ export function TransferForm({ open, onClose }: Props) {
             <Label>Conta de Destino</Label>
             <Select error={errors.toAccountId?.message} {...register('toAccountId')}>
               <option value="">Selecione</option>
-              {accounts?.map((a) => (
+              {accounts?.filter((a) => a.isActive).map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </Select>

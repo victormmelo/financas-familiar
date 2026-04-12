@@ -1,18 +1,16 @@
-import { createRequire } from 'node:module'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import './env.js' // valida variáveis de ambiente antes de qualquer outra coisa
 import { env } from './env.js'
 import { initSentry, Sentry } from './lib/sentry.js'
 
-/** CJS (`NodeNext` sem `"type":"module"`): base de resolução para `pino-pretty` no monorepo. */
-const nodeRequire = createRequire(__filename)
-
+/** Pretty: devDependency pode estar no hoisted root do monorepo ou em apps/api. */
 function isPinoPrettyInstalled(): boolean {
-  try {
-    nodeRequire.resolve('pino-pretty')
-    return true
-  } catch {
-    return false
-  }
+  const candidates = [
+    resolve(process.cwd(), 'node_modules/pino-pretty/package.json'),
+    resolve(process.cwd(), '..', '..', 'node_modules/pino-pretty/package.json'),
+  ]
+  return candidates.some((p) => existsSync(p))
 }
 
 // Sentry deve ser inicializado antes do Fastify para capturar erros de bootstrap
@@ -21,7 +19,6 @@ initSentry()
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
-import jwt from '@fastify/jwt'
 import { registerSwagger } from './plugins/swagger.js'
 import { registerErrorHandler } from './plugins/error-handler.js'
 import { registerAuthenticate } from './plugins/authenticate.js'
@@ -37,8 +34,8 @@ import creditCardsRoutes from './modules/credit-cards/credit-cards.routes.js'
 import goalsRoutes from './modules/goals/goals.routes.js'
 import budgetsRoutes from './modules/budgets/budgets.routes.js'
 import reportsRoutes from './modules/reports/reports.routes.js'
-import mcpTokensRoutes from './modules/mcp-tokens/mcp-tokens.routes.js'
 import reconciliationRoutes from './modules/reconciliation/reconciliation.routes.js'
+import identityRoutes from './modules/identity/identity.routes.js'
 import './jobs/email.worker.js'
 import './jobs/reports.worker.js'
 import './jobs/recurring-transactions.worker.js'
@@ -84,14 +81,6 @@ const start = async () => {
       secret: env.COOKIE_SECRET ?? 'cookie-secret-change-in-production',
     })
 
-    await app.register(jwt, {
-      secret: env.JWT_ACCESS_SECRET,
-      cookie: {
-        cookieName: 'refreshToken',
-        signed: false,
-      },
-    })
-
     await registerSwagger(app)
     registerErrorHandler(app)
     registerAuthenticate(app)
@@ -107,7 +96,7 @@ const start = async () => {
     await app.register(goalsRoutes, { prefix: '/goals' })
     await app.register(budgetsRoutes, { prefix: '/budgets' })
     await app.register(reportsRoutes, { prefix: '/reports' })
-    await app.register(mcpTokensRoutes, { prefix: '/mcp-tokens' })
+    await app.register(identityRoutes, { prefix: '/identity' })
     await app.register(reconciliationRoutes, { prefix: '/reconciliation' })
 
     await app.listen({ port: PORT, host: '0.0.0.0' })

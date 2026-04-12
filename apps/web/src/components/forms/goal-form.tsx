@@ -143,7 +143,7 @@ export function GoalForm({ open, onClose, goal }: Props) {
             <Label>Conta Vinculada (opcional)</Label>
             <Select {...register('accountId')}>
               <option value="">Nenhuma</option>
-              {accounts?.map((a) => (
+              {accounts?.filter((a) => a.isActive).map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </Select>

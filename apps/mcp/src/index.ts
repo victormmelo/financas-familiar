@@ -1,15 +1,16 @@
-import './load-env.js'
+import './env.js'
 import express from 'express'
 import { randomUUID } from 'crypto'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { createMcpServer } from './server.js'
 import { validateMcpToken } from './auth.js'
+import { env } from './env.js'
 
 const app = express()
 app.use(express.json())
 
-const PORT = Number(process.env.MCP_PORT) || 3002
+const PORT = env.MCP_PORT
 
 // Mapa de sessões ativas: sessionId → transport
 const activeSessions = new Map<string, StreamableHTTPServerTransport>()
@@ -35,7 +36,7 @@ app.post('/mcp', async (req, res) => {
 
   const context = await validateMcpToken(authHeader)
   if (!context) {
-    res.status(401).json({ error: 'Token MCP inválido ou ausente. Use Authorization: Bearer mcp_...' })
+    res.status(401).json({ error: 'Bearer token do Keycloak inválido, expirado ou sem vínculo com usuário/integração ativa.' })
     return
   }
 

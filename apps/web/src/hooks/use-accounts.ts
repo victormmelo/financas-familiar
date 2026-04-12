@@ -17,6 +17,7 @@ export interface Account {
 export interface UseAccountsParams {
   asOfYear?: number
   asOfMonth?: number
+  enabled?: boolean
 }
 
 function normalizeAccount(a: Account): Account {
@@ -42,6 +43,7 @@ export function useAccounts(params?: UseAccountsParams) {
       const rows = await api.get<Account[]>(`/accounts${qs}`)
       return rows.map(normalizeAccount)
     },
+    enabled: params?.enabled ?? true,
   })
 }
 

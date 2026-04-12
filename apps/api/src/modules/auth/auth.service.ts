@@ -1,43 +1,22 @@
-import bcrypt from 'bcrypt'
 import crypto from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
-import { redis } from '../../lib/redis.js'
 import { emailQueue } from '../../jobs/email.queue.js'
-import type { FastifyInstance } from 'fastify'
-import type {
-  RegisterInput,
-  LoginInput,
-  InviteInput,
-  AcceptInviteInput,
-} from './auth.schema.js'
-import type { AuthTokens, AuthUser, TokenPayload } from './auth.types.js'
+import type { BootstrapInput, InviteInput, AcceptInviteInput } from './auth.schema.js'
+import type { AuthUser } from './auth.types.js'
+import type { KeycloakAccessClaims } from '../../lib/keycloak-claims.js'
+import { resolveEmailFromClaims } from '../../lib/keycloak-claims.js'
 
-const SALT_ROUNDS = 12
-const ACCESS_TOKEN_TTL = '15m'
-const REFRESH_TOKEN_TTL = '7d'
-const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 const INVITE_EXPIRY_HOURS = 48
 
-function refreshKey(userId: string, tokenId: string) {
-  return `refresh:${userId}:${tokenId}`
-}
-
-async function generateTokens(app: FastifyInstance, payload: TokenPayload): Promise<AuthTokens> {
-  const tokenId = crypto.randomBytes(16).toString('hex')
-  const accessToken = app.jwt.sign(payload, { expiresIn: ACCESS_TOKEN_TTL })
-  const refreshToken = app.jwt.sign(
-    { ...payload, jti: tokenId },
-    { expiresIn: REFRESH_TOKEN_TTL },
-  )
-
-  // Store refresh token ID in Redis for rotation validation
-  await redis.set(refreshKey(payload.sub, tokenId), '1', 'EX', REFRESH_TOKEN_TTL_SECONDS)
-
-  return { accessToken, refreshToken }
-}
-
-function buildAuthUser(user: { id: string; name: string; email: string; role: string; familyId: string; family: { id: string; name: string } }): AuthUser {
+export function buildAuthUser(user: {
+  id: string
+  name: string
+  email: string
+  role: string
+  familyId: string
+  family: { id: string; name: string }
+}): AuthUser {
   return {
     id: user.id,
     name: user.name,
@@ -48,22 +27,50 @@ function buildAuthUser(user: { id: string; name: string; email: string; role: st
   }
 }
 
-export async function register(app: FastifyInstance, input: RegisterInput): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-  const existing = await prisma.user.findUnique({ where: { email: input.email } })
-  if (existing) {
+function requireVerifiedEmail(claims: KeycloakAccessClaims): void {
+  if (claims.email_verified === false) {
+    throw Object.assign(new Error('E-mail ainda não verificado no provedor de identidade'), { statusCode: 403 })
+  }
+}
+
+/**
+ * Primeiro acesso: cria família + usuário ADMIN vinculado ao `sub` do Keycloak.
+ * Só após e-mail verificado no token (quando informado pelo IdP).
+ */
+export async function bootstrap(
+  input: BootstrapInput,
+  claims: KeycloakAccessClaims,
+): Promise<{ user: AuthUser }> {
+  requireVerifiedEmail(claims)
+  const email = resolveEmailFromClaims(claims)
+  if (!email) {
+    throw Object.assign(new Error('Token sem e-mail utilizável para cadastro'), { statusCode: 400 })
+  }
+
+  const existingSub = await prisma.user.findUnique({ where: { keycloakSub: claims.sub } })
+  if (existingSub) {
+    throw Object.assign(new Error('Usuário já vinculado a esta conta'), { statusCode: 409 })
+  }
+
+  const existingEmail = await prisma.user.findUnique({ where: { email } })
+  if (existingEmail) {
     throw Object.assign(new Error('E-mail já cadastrado'), { statusCode: 409 })
   }
 
-  const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS)
+  const displayName =
+    input.name?.trim() ||
+    email.split('@')[0] ||
+    'Usuário'
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const family = await tx.family.create({ data: { name: input.familyName } })
     const user = await tx.user.create({
       data: {
         familyId: family.id,
-        name: input.name,
-        email: input.email,
-        passwordHash,
+        name: displayName,
+        email,
+        keycloakSub: claims.sub,
+        passwordHash: null,
         role: 'ADMIN',
       },
       include: { family: true },
@@ -71,94 +78,24 @@ export async function register(app: FastifyInstance, input: RegisterInput): Prom
     return user
   })
 
-  const payload: TokenPayload = {
-    sub: result.id,
-    familyId: result.familyId,
-    role: result.role,
-  }
-  const tokens = await generateTokens(app, payload)
-
-  return { user: buildAuthUser(result), tokens }
-}
-
-export async function login(app: FastifyInstance, input: LoginInput): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-  const user = await prisma.user.findUnique({
-    where: { email: input.email },
-    include: { family: true },
-  })
-
-  const unauthorized = () =>
-    Object.assign(new Error('E-mail ou senha inválidos'), { statusCode: 401 })
-
-  if (!user) throw unauthorized()
-
-  const valid = await bcrypt.compare(input.password, user.passwordHash)
-  if (!valid) throw unauthorized()
-
-  const payload: TokenPayload = {
-    sub: user.id,
-    familyId: user.familyId,
-    role: user.role,
-  }
-  const tokens = await generateTokens(app, payload)
-
-  return { user: buildAuthUser(user), tokens }
-}
-
-export async function refresh(app: FastifyInstance, refreshToken: string): Promise<AuthTokens> {
-  let payload: TokenPayload & { jti?: string }
-  try {
-    payload = app.jwt.verify<TokenPayload & { jti?: string }>(refreshToken)
-  } catch {
-    throw Object.assign(new Error('Refresh token inválido ou expirado'), { statusCode: 401 })
-  }
-
-  const jti = payload.jti
-  if (!jti) {
-    throw Object.assign(new Error('Refresh token inválido'), { statusCode: 401 })
-  }
-
-  // Validate token exists in Redis (refresh rotation)
-  const key = refreshKey(payload.sub, jti)
-  const exists = await redis.get(key)
-  if (!exists) {
-    throw Object.assign(new Error('Refresh token já utilizado ou expirado'), { statusCode: 401 })
-  }
-
-  // Invalidate current refresh token
-  await redis.del(key)
-
-  const user = await prisma.user.findUnique({ where: { id: payload.sub } })
-  if (!user) throw Object.assign(new Error('Usuário não encontrado'), { statusCode: 401 })
-
-  const newPayload: TokenPayload = {
-    sub: user.id,
-    familyId: user.familyId,
-    role: user.role,
-  }
-  return generateTokens(app, newPayload)
-}
-
-export async function logout(userId: string, jti?: string) {
-  if (jti) {
-    await redis.del(refreshKey(userId, jti))
-  }
+  return { user: buildAuthUser(result) }
 }
 
 export async function invite(
-  app: FastifyInstance,
   familyId: string,
   invitedById: string,
   input: InviteInput,
 ): Promise<{ token: string }> {
-  const existing = await prisma.user.findUnique({ where: { email: input.email } })
+  const emailNorm = input.email.trim().toLowerCase()
+
+  const existing = await prisma.user.findUnique({ where: { email: emailNorm } })
   if (existing) {
     throw Object.assign(new Error('Usuário já possui conta'), { statusCode: 409 })
   }
 
   const pendingInvite = await prisma.familyInvite.findFirst({
     where: {
-      email: input.email,
+      email: emailNorm,
       familyId,
       acceptedAt: null,
       expiresAt: { gt: new Date() },
@@ -172,14 +109,14 @@ export async function invite(
   const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000)
 
   await prisma.familyInvite.create({
-    data: { familyId, invitedById, email: input.email, token, expiresAt },
+    data: { familyId, invitedById, email: emailNorm, token, expiresAt },
   })
 
   const family = await prisma.family.findUniqueOrThrow({ where: { id: familyId } })
   const invitedBy = await prisma.user.findUniqueOrThrow({ where: { id: invitedById } })
 
   await emailQueue.add('send-invite', {
-    to: input.email,
+    to: emailNorm,
     inviteToken: token,
     familyName: family.name,
     invitedByName: invitedBy.name,
@@ -189,23 +126,42 @@ export async function invite(
   return { token }
 }
 
+/**
+ * Convite: requer Bearer Keycloak; e-mail do token deve coincidir com o do convite.
+ */
 export async function acceptInvite(
-  app: FastifyInstance,
-  token: string,
+  inviteToken: string,
   input: AcceptInviteInput,
-): Promise<{ user: AuthUser; tokens: AuthTokens }> {
-  const invite = await prisma.familyInvite.findUnique({ where: { token } })
+  claims: KeycloakAccessClaims,
+): Promise<{ user: AuthUser }> {
+  requireVerifiedEmail(claims)
+  const email = resolveEmailFromClaims(claims)
+  if (!email) {
+    throw Object.assign(new Error('Token sem e-mail utilizável'), { statusCode: 400 })
+  }
+
+  const invite = await prisma.familyInvite.findUnique({ where: { token: inviteToken } })
 
   if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
     throw Object.assign(new Error('Convite inválido ou expirado'), { statusCode: 400 })
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: invite.email } })
-  if (existing) {
-    throw Object.assign(new Error('E-mail já cadastrado'), { statusCode: 409 })
+  if (email !== invite.email.trim().toLowerCase()) {
+    throw Object.assign(
+      new Error('O e-mail da sessão deve ser o mesmo do convite'),
+      { statusCode: 403 },
+    )
   }
 
-  const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS)
+  const existingSub = await prisma.user.findUnique({ where: { keycloakSub: claims.sub } })
+  if (existingSub) {
+    throw Object.assign(new Error('Esta conta já está vinculada a um usuário'), { statusCode: 409 })
+  }
+
+  const existingEmail = await prisma.user.findUnique({ where: { email: invite.email } })
+  if (existingEmail) {
+    throw Object.assign(new Error('E-mail já cadastrado'), { statusCode: 409 })
+  }
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const user = await tx.user.create({
@@ -213,7 +169,8 @@ export async function acceptInvite(
         familyId: invite.familyId,
         name: input.name,
         email: invite.email,
-        passwordHash,
+        keycloakSub: claims.sub,
+        passwordHash: null,
         role: 'MEMBER',
       },
       include: { family: true },
@@ -225,12 +182,14 @@ export async function acceptInvite(
     return user
   })
 
-  const payload: TokenPayload = {
-    sub: result.id,
-    familyId: result.familyId,
-    role: result.role,
-  }
-  const tokens = await generateTokens(app, payload)
+  return { user: buildAuthUser(result) }
+}
 
-  return { user: buildAuthUser(result), tokens }
+export async function findAuthUserByKeycloakSub(keycloakSub: string): Promise<AuthUser | null> {
+  const user = await prisma.user.findUnique({
+    where: { keycloakSub },
+    include: { family: true },
+  })
+  if (!user) return null
+  return buildAuthUser(user)
 }

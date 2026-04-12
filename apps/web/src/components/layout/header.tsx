@@ -23,7 +23,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   '/app/orcamentos': { title: 'Orçamentos', subtitle: 'Controle de gastos por categoria' },
   '/app/relatorios': { title: 'Relatórios', subtitle: 'Análises e demonstrativos' },
   '/app/reconciliacao': { title: 'Reconciliação', subtitle: 'Integração Open Finance' },
-  '/app/integracoes/mcp': { title: 'Tokens MCP', subtitle: 'Integrações e acesso' },
+  '/app/integracoes/mcp': { title: 'Integrações MCP', subtitle: 'OAuth, clients e acesso técnico' },
 }
 
 export function Header() {

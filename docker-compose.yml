@@ -10,7 +10,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-financas} -d ${POSTGRES_DB:-financas_familiar}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-financas} -d ${POSTGRES_DB:-financas_familiar}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,6 +44,38 @@ services:
     container_name: financas_mailhog
     network_mode: host
 
+  # OIDC — http://localhost:8080 (host network). Realm e clients base são importados do template versionado em ./keycloak.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    container_name: financas_keycloak
+    entrypoint: ["/bin/sh", "/opt/keycloak/data/import/import-realm.sh"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://localhost:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-financas}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-financas_password}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-financas-familiar}
+      KEYCLOAK_WEB_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID:-financas-web}
+      KEYCLOAK_MCP_CLIENT_ID: ${KEYCLOAK_MCP_CLIENT_ID:-financas-mcp}
+      KEYCLOAK_MCP_CLIENT_SECRET: ${KEYCLOAK_MCP_CLIENT_SECRET:-change_me_mcp_secret}
+      KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID: ${KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID:-financas-identity-admin}
+      KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET: ${KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET:-change_me_identity_admin_secret}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:3002/mcp}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./keycloak/realm-template.json:/opt/keycloak/data/import/realm-template.json:ro
+      - ./keycloak/import-realm.sh:/opt/keycloak/data/import/import-realm.sh:ro
+    network_mode: host
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -50,10 +86,19 @@ services:
       PORT: ${PORT:-3001}
       DATABASE_URL: ${DATABASE_URL:-postgresql://financas:financas_password@localhost:5432/financas_familiar}
       REDIS_URL: ${REDIS_URL:-redis://:redis_password@localhost:6379}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
-      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://localhost:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-financas-familiar}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-financas-web}
+      KEYCLOAK_WEB_CLIENT_ID: ${KEYCLOAK_WEB_CLIENT_ID:-financas-web}
+      KEYCLOAK_MCP_CLIENT_ID: ${KEYCLOAK_MCP_CLIENT_ID:-financas-mcp}
+      KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID: ${KEYCLOAK_IDENTITY_ADMIN_CLIENT_ID:-financas-identity-admin}
+      KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET: ${KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET:-change_me_identity_admin_secret}
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-}
+      APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:3002/mcp}
       COOKIE_SECRET: ${COOKIE_SECRET}
       STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://localhost:9000}
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minio_admin}
@@ -80,14 +125,53 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        AUTH_SECRET: ${AUTH_SECRET:-dev-only-replace-with-openssl-rand-base64-32chars}
+        AUTH_URL: ${AUTH_URL:-http://localhost:3000/api/auth}
+        NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000/api/auth}
+        NEXTAUTH_URL_INTERNAL: ${NEXTAUTH_URL_INTERNAL:-http://localhost:3000/api/auth}
+        AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+        AUTH_KEYCLOAK_ID: ${AUTH_KEYCLOAK_ID:-financas-web}
+        AUTH_KEYCLOAK_SECRET: ${AUTH_KEYCLOAK_SECRET:-}
+        AUTH_KEYCLOAK_ISSUER: ${AUTH_KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
     container_name: financas_web
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Família Finance}
+      # Evita erro Auth.js "Configuration" / MissingSecret se .env não exportar AUTH_SECRET no host.
+      AUTH_SECRET: ${AUTH_SECRET:-dev-only-replace-with-openssl-rand-base64-32chars}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000/api/auth}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000/api/auth}
+      NEXTAUTH_URL_INTERNAL: ${NEXTAUTH_URL_INTERNAL:-http://localhost:3000/api/auth}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      AUTH_KEYCLOAK_ID: ${AUTH_KEYCLOAK_ID:-financas-web}
+      AUTH_KEYCLOAK_SECRET: ${AUTH_KEYCLOAK_SECRET:-}
+      AUTH_KEYCLOAK_ISSUER: ${AUTH_KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
+      AUTH_KEYCLOAK_END_SESSION_URL: ${AUTH_KEYCLOAK_END_SESSION_URL:-http://localhost:8080/realms/financas-familiar/protocol/openid-connect/logout}
     depends_on:
       - api
+    network_mode: host
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+    container_name: financas_mcp
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      MCP_PORT: ${MCP_PORT:-3002}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://financas:financas_password@localhost:5432/financas_familiar}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
     network_mode: host
     restart: unless-stopped
 
