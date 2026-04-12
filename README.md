@@ -116,6 +116,7 @@ financas-familiar/
 │   └── workflows/
 │       └── ci.yml
 ├── docker-compose.yml
+├── Makefile
 ├── turbo.json
 └── package.json
 ```
@@ -127,8 +128,11 @@ financas-familiar/
 - Node.js >= 22
 - npm >= 10
 - Docker + Docker Compose
+- `make` (opcional; o [Makefile](Makefile) agrupa os mesmos comandos do npm)
 
-### Passo a passo
+### Fluxo recomendado (infra no Docker, app no host)
+
+Os serviços `api`, `web` e `mcp` no Docker usam **imagem de produção** (código embutido na build). No dia a dia, suba só a **infra** (PostgreSQL, Redis, MinIO, Mailhog, Keycloak) e rode a aplicação com **`npm run dev`** no host — assim alterações de código não exigem rebuild de imagem.
 
 ```bash
 # 1. Clone e instale as dependências
@@ -140,14 +144,35 @@ npm install
 cp .env.example .env
 # Edite .env com suas configurações locais
 
-# 3. Suba os serviços de infraestrutura
+# 3. Suba a infraestrutura (equivalente: make dev-infra ou make infra)
 npm run docker:up
 
-# 4. Gere o cliente Prisma e execute as migrações
-npm run db:generate
-npm run db:migrate
+# 4. Na primeira vez (ou após mudança no schema Prisma): cliente + migrações
+make dev-db
+# ou: npm run db:generate && npm run db:migrate
 
-# 5. Inicie o monorepo em modo dev
+# 5. Monorepo em modo dev (API + Web + MCP via Turborepo)
+npm run dev
+# ou um único comando que sobe a infra e em seguida o dev: make dev
+```
+
+### Makefile (atalhos)
+
+| Comando | Descrição |
+|---------|-----------|
+| `make dev-infra` / `make infra` | Só infra (`docker compose up -d`) |
+| `make dev-db` | `db:generate` + `db:migrate` no host |
+| `make dev` | Infra em background + `npm run dev` (foreground) |
+| `make dev-down` / `make down` | `docker compose down` |
+| `make up` / `make docker-all` | Stack **completa** no Docker, inclusive api/web/mcp (`--profile apps`) |
+
+Para desenvolvimento de código, use **`make dev`** ou `npm run docker:up` seguido de **`npm run dev`**. Use **`npm run docker:up:all`** ou **`make up`** apenas quando quiser tudo rodando em container (paridade com produção, CI local, etc.).
+
+### Passo a passo (somente npm)
+
+```bash
+npm run docker:up
+npm run db:generate && npm run db:migrate   # quando necessário
 npm run dev
 ```
 
@@ -160,6 +185,7 @@ npm run dev
 | Prisma Studio | http://localhost:5555 |
 | MinIO Console | http://localhost:9001 |
 | Mailhog | http://localhost:8025 |
+| Keycloak | http://localhost:8080 |
 
 ## Módulos e funcionalidades
 

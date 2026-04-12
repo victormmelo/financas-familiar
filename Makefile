@@ -1,35 +1,42 @@
 .PHONY: up down build rebuild logs restart reset \
-        infra migrate migrate-prod studio seed \
+        infra dev-infra dev-db dev dev-down docker-all \
+        migrate migrate-prod studio seed \
         shell-api shell-web shell-db \
-        dev dev-api dev-web lint typecheck test
+        dev-api dev-web lint typecheck test
 
 # ── Docker ───────────────────────────────────────────────────────────────────
 
-## Start all services (build if needed)
-up:
+## Stack completa no Docker (api + web + mcp em imagem de produção)
+up: docker-all
+
+docker-all:
+	docker compose --profile apps up -d
+
+## Infra local: PostgreSQL, Redis, MinIO, Mailhog, Keycloak (sem api/web/mcp)
+infra:
 	docker compose up -d
 
-## Start only infrastructure: postgres, redis, minio, mailhog
-infra:
-	docker compose up -d postgres redis minio mailhog
+dev-infra: infra
 
 ## Stop all services
 down:
 	docker compose down
 
-## Build (or rebuild) all Docker images
+dev-down: down
+
+## Build (or rebuild) all Docker images (inclui serviços com profile apps)
 build:
-	docker compose build
+	docker compose --profile apps build
 
 ## Rebuild images without cache
 rebuild:
-	docker compose build --no-cache
+	docker compose --profile apps build --no-cache
 
 ## Follow logs (optionally filter: make logs s=api)
 logs:
 	docker compose logs -f $(s)
 
-## Restart a service: make restart s=api
+## Restart a service: make restart s=api (exige containers com profile apps ativos)
 restart:
 	docker compose restart $(s)
 
@@ -39,11 +46,15 @@ reset:
 
 # ── Database ─────────────────────────────────────────────────────────────────
 
+## Gera Prisma client e aplica migrações (host; use após clone ou mudança de schema)
+dev-db:
+	npm run db:generate && npm run db:migrate
+
 ## Run migrations in development mode
 migrate:
 	npm run db:migrate
 
-## Deploy migrations (production)
+## Deploy migrations (production; exige API no Docker: make up)
 migrate-prod:
 	docker compose exec api npx prisma migrate deploy
 
@@ -57,11 +68,11 @@ seed:
 
 # ── Shells ───────────────────────────────────────────────────────────────────
 
-## Open a shell in the API container
+## Open a shell in the API container (make up antes)
 shell-api:
 	docker compose exec api sh
 
-## Open a shell in the Web container
+## Open a shell in the Web container (make up antes)
 shell-web:
 	docker compose exec web sh
 
@@ -71,15 +82,15 @@ shell-db:
 
 # ── Local development ────────────────────────────────────────────────────────
 
-## Start all apps locally with hot reload (needs infra running)
-dev:
+## Sobe a infra no Docker e roda api+web (+mcp via Turbo) no host com npm run dev
+dev: dev-infra
 	npm run dev
 
-## Start only the API locally
+## Start only the API locally (precisa de infra)
 dev-api:
 	npm run dev:api
 
-## Start only the Web locally
+## Start only the Web locally (precisa de infra)
 dev-web:
 	npm run dev:web
 

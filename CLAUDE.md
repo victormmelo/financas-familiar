@@ -11,14 +11,17 @@ Frontend: Next.js 15 (App Router) + Tailwind 4 + shadcn/ui + TanStack Query 5
 
 ## Comandos essenciais
 ```bash
-npm run dev          # inicia api + web em paralelo (Turborepo)
-npm run build        # build de todos os apps
-npm run lint         # lint em todo o monorepo
-npm run typecheck    # typecheck em todo o monorepo
-npm run docker:up    # sobe PostgreSQL, Redis, MinIO, Mailhog
-npm run db:migrate   # roda migrações Prisma
-npm run db:generate  # gera client Prisma
-npm run db:studio    # abre Prisma Studio em :5555
+npm run dev             # inicia api + web (+ mcp) no host (Turborepo)
+npm run build           # build de todos os apps
+npm run lint            # lint em todo o monorepo
+npm run typecheck       # typecheck em todo o monorepo
+npm run docker:up       # sobe só infra: PostgreSQL, Redis, MinIO, Mailhog, Keycloak (sem api/web/mcp no Compose)
+npm run docker:up:all   # stack completa no Docker (api, web, mcp em imagem de produção; profile apps)
+npm run db:migrate      # roda migrações Prisma
+npm run db:generate     # gera client Prisma
+npm run db:studio       # abre Prisma Studio em :5555
+
+# Atalhos Make (equivalentes): make dev-infra, make dev-db, make dev, make up
 ```
 
 ## Regras globais

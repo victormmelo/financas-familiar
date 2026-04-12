@@ -76,7 +76,10 @@ services:
     network_mode: host
     restart: unless-stopped
 
+  # Rodam só com `docker compose --profile apps up` (imagem de produção). Dev local: `npm run dev` no host.
   api:
+    profiles:
+      - apps
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -122,6 +125,8 @@ services:
     restart: unless-stopped
 
   web:
+    profiles:
+      - apps
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -157,6 +162,8 @@ services:
     restart: unless-stopped
 
   mcp:
+    profiles:
+      - apps
     build:
       context: .
       dockerfile: apps/mcp/Dockerfile

@@ -20,6 +20,7 @@
     "db:studio": "npm run db:studio --workspace=apps/api",
     "db:generate": "npm run db:generate --workspace=apps/api",
     "docker:up": "docker compose up -d",
+    "docker:up:all": "docker compose --profile apps up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
   },
