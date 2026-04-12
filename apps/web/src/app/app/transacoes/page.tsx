@@ -2,7 +2,19 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Plus, Check, CheckCheck, CreditCard, Trash2, Pencil, Receipt, RotateCcw, Tag } from 'lucide-react'
+import {
+  Plus,
+  Check,
+  CheckCheck,
+  CreditCard,
+  Trash2,
+  Pencil,
+  Receipt,
+  RotateCcw,
+  Tag,
+  Banknote,
+  Loader2,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +30,7 @@ import {
   useBulkConfirmTransactions,
   useBulkSetTransactionCategory,
   useDeleteTransaction,
+  useUpdateTransaction,
   type Transaction,
   type TransactionFilters,
 } from '@/hooks/use-transactions'
@@ -25,9 +38,26 @@ import { useAccounts } from '@/hooks/use-accounts'
 import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { EntryLaunchContextBar } from '@/components/layout/entry-launch-context-bar'
 
 const filterSelectClass =
   'h-10 min-h-10 w-full text-sm md:h-8 md:min-h-0'
+
+function transactionMovementLabel(t: Transaction): string | null {
+  if (t.recognition === 'INVOICE_PAYMENT' && t.creditCardInvoice) {
+    const inv = t.creditCardInvoice
+    const mm = String(inv.referenceMonth).padStart(2, '0')
+    const cardName = inv.creditCard?.name ?? 'Cartão'
+    return `Pagamento de fatura · ${cardName} · ${mm}/${inv.referenceYear}`
+  }
+  if (t.recognition === 'TRANSFER_LEG' && t.transfer) {
+    if (t.type === 'EXPENSE') {
+      return `Transferência (saída) → ${t.transfer.toAccount?.name ?? 'Conta destino'}`
+    }
+    return `Transferência (entrada) ← ${t.transfer.fromAccount?.name ?? 'Conta origem'}`
+  }
+  return null
+}
 const filterDateClass =
   'h-10 min-h-10 w-full rounded-sm font-mono text-sm tabular-nums md:h-8 md:min-h-0'
 
@@ -49,6 +79,7 @@ export default function TransacoesPage() {
   const bulkConfirm = useBulkConfirmTransactions()
   const bulkSetCategory = useBulkSetTransactionCategory()
   const remove = useDeleteTransaction()
+  const liquidate = useUpdateTransaction()
 
   const transactions = data?.data ?? []
   const totalPages = data?.totalPages ?? 1
@@ -112,6 +143,15 @@ export default function TransacoesPage() {
     }
   }
 
+  async function handleLiquidate(id: string) {
+    try {
+      await liquidate.mutateAsync({ id, liquidated: true })
+      toast('Marcado como liquidado.', 'success')
+    } catch {
+      toast('Erro ao liquidar', 'error')
+    }
+  }
+
   async function handleBulkConfirm() {
     try {
       await bulkConfirm.mutateAsync(Array.from(selected))
@@ -169,6 +209,8 @@ export default function TransacoesPage() {
         showMobileBulkBar && 'pb-32 md:pb-0',
       )}
     >
+      <EntryLaunchContextBar />
+
       {/* Painel operacional de critérios — grid estável */}
       <div className="flex min-w-0 flex-col gap-2">
         <div className="rounded-sm border border-border border-l-2 border-l-[#7CFC98] bg-card/80 p-4">
@@ -497,6 +539,12 @@ export default function TransacoesPage() {
                         </div>
                         <div>
                           <p className="font-medium text-foreground">{t.description}</p>
+                          {(() => {
+                            const movement = transactionMovementLabel(t)
+                            return movement ? (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{movement}</p>
+                            ) : null
+                          })()}
                           {t.creditCard && (
                             <p className="text-[10px] text-muted-foreground mt-0.5">
                               Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
@@ -521,14 +569,21 @@ export default function TransacoesPage() {
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <dt className="sr-only">Status</dt>
-                            <dd>
+                            <dd className="flex flex-wrap items-center gap-1">
                               <StatusBadge status={t.status} />
+                              {t.liquidated ? (
+                                <Badge variant="outline" className="text-[10px]">
+                                  Liquidado
+                                </Badge>
+                              ) : null}
                             </dd>
                           </div>
                         </dl>
                         <TransactionRowActions
                           t={t}
                           onConfirm={() => handleConfirm(t.id)}
+                          onLiquidate={() => handleLiquidate(t.id)}
+                          isLiquidating={liquidate.isPending && liquidate.variables?.id === t.id}
                           onEdit={() => {
                             setEditingTx(t)
                             setShowForm(true)
@@ -586,6 +641,12 @@ export default function TransacoesPage() {
                         <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatDate(t.date)}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-foreground">{t.description}</p>
+                          {(() => {
+                            const movement = transactionMovementLabel(t)
+                            return movement ? (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{movement}</p>
+                            ) : null
+                          })()}
                           {t.creditCard && (
                             <p className="text-[10px] text-muted-foreground mt-0.5">
                               Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
@@ -602,7 +663,14 @@ export default function TransacoesPage() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={t.status} />
+                          <div className="flex flex-wrap items-center gap-1">
+                            <StatusBadge status={t.status} />
+                            {t.liquidated ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                Liquidado
+                              </Badge>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right">
                           <TransactionAmount t={t} />
@@ -611,6 +679,8 @@ export default function TransacoesPage() {
                           <TransactionRowActions
                             t={t}
                             onConfirm={() => handleConfirm(t.id)}
+                            onLiquidate={() => handleLiquidate(t.id)}
+                            isLiquidating={liquidate.isPending && liquidate.variables?.id === t.id}
                             onEdit={() => {
                               setEditingTx(t)
                               setShowForm(true)
@@ -755,11 +825,17 @@ export default function TransacoesPage() {
 }
 
 function TransactionAmount({ t }: { t: Transaction }) {
+  const isTransfer = t.recognition === 'TRANSFER_LEG'
+  const isInvoicePay = t.recognition === 'INVOICE_PAYMENT'
   return (
     <span
       className={cn(
         'font-mono text-sm font-semibold tabular-nums sm:text-base',
-        t.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400',
+        isTransfer || isInvoicePay
+          ? 'text-sky-300/90'
+          : t.type === 'INCOME'
+            ? 'text-emerald-400'
+            : 'text-rose-400',
       )}
     >
       {t.type === 'INCOME' ? '+' : '-'}
@@ -771,12 +847,16 @@ function TransactionAmount({ t }: { t: Transaction }) {
 function TransactionRowActions({
   t,
   onConfirm,
+  onLiquidate,
+  isLiquidating,
   onEdit,
   onDelete,
   variant,
 }: {
   t: Transaction
   onConfirm: () => void
+  onLiquidate: () => void
+  isLiquidating?: boolean
   onEdit: () => void
   onDelete: () => void
   variant: 'card' | 'table'
@@ -785,8 +865,10 @@ function TransactionRowActions({
   const btnClass = cn(
     'inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors',
     'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+    'disabled:pointer-events-none disabled:opacity-50',
     isCard ? 'size-11 min-h-11 min-w-11' : 'size-10 min-h-10 min-w-10 md:size-9 md:min-h-9 md:min-w-9',
   )
+  const showLiquidate = !t.liquidated && t.status !== 'DELETED'
 
   return (
     <div className={cn('flex items-center', isCard ? 'justify-end gap-1 pt-1' : 'justify-end gap-0.5')}>
@@ -799,6 +881,22 @@ function TransactionRowActions({
           onClick={onConfirm}
         >
           <Check className="h-4 w-4" aria-hidden />
+        </button>
+      )}
+      {showLiquidate && (
+        <button
+          type="button"
+          className={cn(btnClass, 'hover:text-[#8DDBA4]')}
+          title="Liquidar no caixa"
+          aria-label={`Marcar como liquidado: ${t.description}`}
+          disabled={isLiquidating}
+          onClick={onLiquidate}
+        >
+          {isLiquidating ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Banknote className="h-4 w-4" aria-hidden />
+          )}
         </button>
       )}
       <button
