@@ -42,6 +42,7 @@ ARG AUTH_KEYCLOAK_SECRET
 ENV AUTH_KEYCLOAK_SECRET=$AUTH_KEYCLOAK_SECRET
 ARG AUTH_KEYCLOAK_ISSUER
 ENV AUTH_KEYCLOAK_ISSUER=$AUTH_KEYCLOAK_ISSUER
+RUN npm run build --workspace=@financas/shared-types
 RUN npm run build --workspace=apps/web
 
 # --- runner: serve the built app ---
