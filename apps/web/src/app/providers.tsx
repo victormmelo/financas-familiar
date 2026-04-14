@@ -8,7 +8,7 @@ import { SessionSync } from '@/components/auth/session-sync'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider basePath="/api/auth">
+    <SessionProvider basePath="/api/auth" refetchInterval={60} refetchOnWindowFocus>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <SessionSync />

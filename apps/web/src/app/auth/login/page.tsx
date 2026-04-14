@@ -15,7 +15,9 @@ function LoginContent() {
     <Card>
       <CardHeader>
         <CardTitle>Entrar</CardTitle>
-        <CardDescription>Autenticação segura via Keycloak (OIDC).</CardDescription>
+        <CardDescription>
+          Entre com a mesma conta que você usa no acesso seguro ao app — seus dados continuam protegidos.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Button
@@ -23,7 +25,7 @@ function LoginContent() {
           className="w-full"
           onClick={() => void signIn('keycloak', { callbackUrl })}
         >
-          Entrar com Keycloak
+          Continuar
         </Button>
       </CardContent>
       <CardFooter className="flex flex-col gap-2">

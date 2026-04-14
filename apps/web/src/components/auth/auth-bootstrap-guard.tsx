@@ -10,9 +10,7 @@ function AppBootstrapLoading() {
     <div className="flex min-h-[40vh] items-center justify-center">
       <div className="rounded-xl border border-border bg-card px-6 py-5 text-center shadow-sm">
         <p className="text-sm font-medium text-foreground">Preparando sua sessão…</p>
-        <p className="mt-1 text-xs uppercase tracking-widest text-muted-foreground">
-          Sincronizando autenticação
-        </p>
+        <p className="mt-1 text-xs text-muted-foreground">Conectando à sua conta e carregando seus dados.</p>
       </div>
     </div>
   )
@@ -26,10 +24,10 @@ function AppBootstrapError() {
     <div className="flex min-h-[40vh] items-center justify-center">
       <div className="max-w-md space-y-4 rounded-xl border border-border bg-card px-6 py-5 text-center shadow-sm">
         <div>
-          <p className="text-sm font-medium text-foreground">Não foi possível sincronizar sua sessão.</p>
+          <p className="text-sm font-medium text-foreground">Não foi possível conectar à sua conta agora.</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Verifique se a API está no ar e se o endereço em <code className="text-xs">NEXT_PUBLIC_API_URL</code>{' '}
-            aponta para o backend acessível pelo navegador.
+            Pode ser uma instabilidade temporária ou um problema de configuração do ambiente. Tente de novo em
+            instantes; se persistir, avise quem mantém o sistema.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">

@@ -21,9 +21,8 @@ interface MeUser {
 export function SessionSync() {
   const { data: session, status } = useSession()
   const sessionAccessToken =
-    typeof (session as { accessToken?: unknown } | null)?.accessToken === 'string'
-      ? ((session as { accessToken?: string }).accessToken ?? null)
-      : null
+    typeof session?.accessToken === 'string' ? session.accessToken : null
+  const sessionRefreshFailed = session?.error === 'RefreshAccessTokenError'
   const pathname = usePathname()
   const router = useRouter()
   const lastBootstrapTokenRef = useRef<string | null>(null)
@@ -55,10 +54,10 @@ export function SessionSync() {
       return
     }
 
-    if (status !== 'authenticated' || !sessionAccessToken) {
+    if (status !== 'authenticated' || !sessionAccessToken || sessionRefreshFailed) {
       lastBootstrapTokenRef.current = null
       syncInFlightRef.current = false
-      if (status === 'authenticated' && !sessionAccessToken) {
+      if (status === 'authenticated' && (!sessionAccessToken || sessionRefreshFailed)) {
         void (async () => {
           try {
             await signOut({ redirect: false })
@@ -177,6 +176,7 @@ export function SessionSync() {
   }, [
     status,
     sessionAccessToken,
+    sessionRefreshFailed,
     pathname,
     router,
     sessionSyncNonce,

@@ -76,7 +76,8 @@ function AceitarConviteInner() {
       <CardHeader>
         <CardTitle>Aceitar convite</CardTitle>
         <CardDescription>
-          Entre com a mesma conta (e-mail) do convite. Se ainda não estiver logado, faça login com Keycloak.
+          Use a mesma conta (e-mail) indicada no convite. Se ainda não estiver logado, faça login e volte a esta
+          página.
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>

@@ -5,110 +5,58 @@ description: Usar ao integrar frontend com backend — cliente HTTP, autenticaç
 
 # API Contract — Família Finance
 
-## Cliente HTTP (lib/api.ts)
+## Autenticação (visão geral)
 
-O cliente centraliza auth, refresh automático e tratamento de erros.
+- **Login**: NextAuth + provedor OIDC (Keycloak). O access token OIDC é guardado na sessão NextAuth e renovado no callback `jwt` quando há `refresh_token` (ver `apps/web/src/auth.ts`).
+- **Chamadas à API Fastify**: o token em uso no browser fica em **memória** (`setAccessToken` / módulo `lib/api.ts`), preenchido pelo `SessionSync` após o login. O header é `Authorization: Bearer <access_token OIDC>`.
+- **Validação no backend**: rotas protegidas verificam o JWT do Keycloak (`verifyKeycloakAccessToken`). Não existe rota `POST /auth/refresh` na API — o refresh é responsabilidade do NextAuth / IdP, não do Fastify.
+
+## Cliente HTTP (`apps/web/src/lib/api.ts`)
+
+O cliente envia JSON, anexa o Bearer quando há token em memória e usa `credentials: 'include'` (útil se no futuro houver cookies de mesma origem; o fluxo atual não depende de refresh via cookie na API).
 
 ```typescript
-// lib/api.ts
-import { useAuthStore } from '@/stores/auth.store'
+// apps/web/src/lib/api.ts (resumo do contrato)
+import { setAccessToken, api, ApiClientError } from '@/lib/api'
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+// Token OIDC é definido pelo SessionSync após sessão NextAuth válida
+setAccessToken(sessionAccessToken)
 
-interface ApiOptions extends RequestInit {
-  params?: Record<string, string | number | boolean | undefined>
-}
+// Chamadas
+const body = await api.get<MyDto>('/algum/recurso')
 
-async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const { params, ...fetchOptions } = options
-  const url = new URL(path, BASE_URL)
+// Erros: ApiClientError com status e code opcional (ex.: USER_NOT_PROVISIONED em 403)
+```
 
-  if (params) {
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined) url.searchParams.set(k, String(v))
-    })
+Comportamento em **401**:
+
+- O cliente **zera** o token em memória e lança `ApiClientError` com `code: 'UNAUTHENTICATED'`.
+- **Não** há retry automático nem segunda chamada a um endpoint de refresh na API.
+- Fluxos que dependem de sessão (ex.: `SessionSync`) tratam 401 com `signOut` e redirecionamento ao login quando aplicável.
+
+Hooks e componentes devem capturar `ApiClientError` e decidir UX (toast, redirect, invalidação de queries).
+
+Exemplo de uso em mutation:
+
+```typescript
+import { ApiClientError } from '@/lib/api'
+
+try {
+  await api.post('/recurso', payload)
+} catch (e) {
+  if (e instanceof ApiClientError && e.status === 403 && e.code === 'USER_NOT_PROVISIONED') {
+    // orientar conclusão de cadastro / bootstrap
   }
-
-  const token = useAuthStore.getState().accessToken
-
-  const res = await fetch(url, {
-    ...fetchOptions,
-    credentials: 'include', // envia cookie do refresh token
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...fetchOptions.headers,
-    },
-  })
-
-  // Token expirado — tenta refresh automático
-  if (res.status === 401) {
-    const refreshed = await refreshToken()
-    if (refreshed) return request<T>(path, options) // retry
-    useAuthStore.getState().logout()
-    window.location.href = '/auth/login'
-    throw new Error('Sessão expirada')
+  if (e instanceof ApiClientError && e.status === 401) {
+    // sessão inválida — em geral o SessionSync já redireciona; evitar estado inconsistente
   }
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, error?.error?.code, error?.error?.message)
-  }
-
-  return res.json()
-}
-
-async function refreshToken(): Promise<boolean> {
-  try {
-    const res = await fetch(`${BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    })
-    if (!res.ok) return false
-    const { data } = await res.json()
-    useAuthStore.getState().setAccessToken(data.accessToken)
-    return true
-  } catch {
-    return false
-  }
-}
-
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-  ) {
-    super(message)
-  }
-}
-
-export const api = {
-  get: <T>(path: string, options?: ApiOptions) =>
-    request<{ data: T }>(path, { ...options, method: 'GET' }).then((r) => r.data),
-
-  post: <T>(path: string, body?: unknown, options?: ApiOptions) =>
-    request<{ data: T }>(path, {
-      ...options,
-      method: 'POST',
-      body: JSON.stringify(body),
-    }).then((r) => r.data),
-
-  patch: <T>(path: string, body?: unknown, options?: ApiOptions) =>
-    request<{ data: T }>(path, {
-      ...options,
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }).then((r) => r.data),
-
-  delete: <T>(path: string, options?: ApiOptions) =>
-    request<{ data: T }>(path, { ...options, method: 'DELETE' }).then((r) => r.data),
 }
 ```
 
 ## Tipagem compartilhada
 
 Tipos de request/response SEMPRE de `packages/shared-types`:
+
 ```typescript
 // ✅ Correto
 import type { Transaction, CreateTransactionInput } from '@financas/shared-types'
@@ -118,23 +66,23 @@ interface Transaction { ... } // PROIBIDO se já existe em shared-types
 ```
 
 ## Tratamento de erro nas mutations
+
 ```typescript
-import { ApiError } from '@/lib/api'
-import { toast } from 'sonner'
+import { ApiClientError } from '@/lib/api'
+import { useToast } from '@/components/ui/toast'
 
 export function useCreateTransacao() {
+  const { toast } = useToast()
   return useMutation({
-    mutationFn: (data: CreateTransactionInput) =>
-      api.post<Transaction>('/transactions', data),
+    mutationFn: (data: CreateTransactionInput) => api.post<Transaction>('/transactions', data),
     onSuccess: () => {
-      toast.success('Transação criada')
+      toast('Transação criada', 'success')
       queryClient.invalidateQueries({ queryKey: ['transactions'] })
     },
-    onError: (error) => {
-      if (error instanceof ApiError) {
-        if (error.status === 422) toast.error('Dados inválidos: ' + error.message)
-        else if (error.status === 403) toast.error('Sem permissão')
-        else toast.error('Erro ao salvar. Tente novamente.')
+    onError: (error: unknown) => {
+      if (error instanceof ApiClientError) {
+        if (error.status === 403) toast(error.message, 'error')
+        else toast('Erro ao salvar. Tente novamente.', 'error')
       }
     },
   })
@@ -142,6 +90,7 @@ export function useCreateTransacao() {
 ```
 
 ## Query keys — convenção
+
 ```typescript
 // Sempre arrays hierárquicos para invalidação precisa
 ['transactions']                          // lista geral
@@ -154,14 +103,16 @@ export function useCreateTransacao() {
 ```
 
 ## Paginação cursor-based
+
 ```typescript
 export function useTransacoes() {
   return useInfiniteQuery({
     queryKey: ['transactions'],
-    queryFn: ({ pageParam }) =>
-      api.get<{ data: Transaction[]; meta: PaginationMeta }>('/transactions', {
-        params: { cursor: pageParam, limit: 20 },
-      }),
+    queryFn: ({ pageParam }) => {
+      const q = new URLSearchParams({ limit: '20' })
+      if (pageParam) q.set('cursor', String(pageParam))
+      return api.get<{ data: Transaction[]; meta: PaginationMeta }>(`/transactions?${q}`)
+    },
     getNextPageParam: (last) => last.meta.hasMore ? last.meta.nextCursor : undefined,
     initialPageParam: undefined,
   })
@@ -169,7 +120,8 @@ export function useTransacoes() {
 ```
 
 ## Segurança
-- Access token NUNCA em localStorage — apenas memória (Zustand)
-- Refresh token apenas em httpOnly cookie — nunca acessível via JS
-- Nunca logar tokens no console
-- Em Server Components, nunca passar token para o client via props
+
+- Access token OIDC na web: exposto ao JS apenas via sessão NextAuth / memória do cliente para chamadas à API — não persistir em `localStorage` por padrão.
+- Refresh OIDC: tratado no servidor NextAuth (`jwt` callback), não expor refresh token ao código de UI.
+- Nunca logar tokens no console.
+- Em Server Components, não passar token sensível ao client via props desnecessárias.
