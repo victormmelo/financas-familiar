@@ -7,7 +7,7 @@ import {
   rotateIntegrationClientSecret,
   updateClientEnabledState,
 } from '../../lib/keycloak-admin.js'
-import type { CreateIntegrationInput, UpdateIntegrationInput } from './identity.schema.js'
+import type { ClientCredentialsInput, CreateIntegrationInput, UpdateIntegrationInput } from './identity.schema.js'
 import { env } from '../../env.js'
 
 function normalizeIntegration(row: {
@@ -197,4 +197,63 @@ export async function listManagedClients(familyId: string) {
 
 export function getIdentityMetadata() {
   return buildOidcMetadata()
+}
+
+type KeycloakTokenSuccess = {
+  access_token: string
+  expires_in?: number
+  token_type?: string
+}
+
+type KeycloakTokenError = {
+  error?: string
+  error_description?: string
+}
+
+export async function exchangeClientCredentialsToken(familyId: string, input: ClientCredentialsInput) {
+  const integration = await prisma.integrationClient.findFirst({
+    where: {
+      familyId,
+      keycloakClientId: input.clientId.trim(),
+      revokedAt: null,
+      status: 'ACTIVE',
+    },
+  })
+
+  if (!integration) {
+    throw Object.assign(new Error('Client ID não corresponde a uma integração ativa desta família'), { statusCode: 403 })
+  }
+
+  const { tokenEndpoint } = buildOidcMetadata()
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: input.clientId.trim(),
+    client_secret: input.clientSecret,
+  })
+
+  const res = await fetch(tokenEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+
+  const json = (await res.json()) as KeycloakTokenSuccess & KeycloakTokenError
+
+  if (!res.ok || !json.access_token) {
+    const hint = typeof json.error_description === 'string' ? json.error_description : json.error
+    const isClientError = res.status === 401 || res.status === 400
+    const safeMessage = isClientError
+      ? 'Credenciais inválidas ou client sem permissão para client_credentials'
+      : 'Falha ao solicitar token ao provedor de identidade'
+    // 401 no cliente HTTP da web desloga o usuário — usar 400 para falha de credenciais do Keycloak
+    throw Object.assign(new Error(hint ? `${safeMessage}: ${hint}` : safeMessage), {
+      statusCode: isClientError ? 400 : 502,
+    })
+  }
+
+  return {
+    accessToken: json.access_token,
+    expiresIn: typeof json.expires_in === 'number' ? json.expires_in : 0,
+    tokenType: typeof json.token_type === 'string' ? json.token_type : 'Bearer',
+  }
 }

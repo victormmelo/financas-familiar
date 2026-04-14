@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { Copy, KeyRound, Plus, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Copy, KeyRound, Plus, RefreshCcw, ShieldCheck, Ticket, Trash2 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ import { useToast } from '@/components/ui/toast'
 import { formatDate } from '@/lib/utils'
 import {
   useCreateIdentityIntegration,
+  useExchangeIdentityClientCredentials,
   useIdentityIntegrations,
   useIdentityMetadata,
   useManagedIdentityClients,
@@ -24,6 +25,7 @@ import {
   useRotateIntegrationSecret,
   useUpdateIdentityIntegration,
 } from '@/hooks/use-identity-integrations'
+import type { IdentityClientCredentialsToken } from '@financas/shared-types'
 
 const createSchema = z.object({
   name: z.string().min(2, 'Nome obrigatório').max(100, 'Máximo 100 caracteres'),
@@ -36,6 +38,26 @@ type CreateForm = z.infer<typeof createSchema>
 type SecretDialogState =
   | { title: string; clientId: string; clientSecret: string }
   | null
+
+const tokenMintSchema = z.object({
+  clientSecret: z.string().min(1, 'Informe o client secret'),
+})
+
+type TokenMintForm = z.infer<typeof tokenMintSchema>
+
+type TokenMintDialogState = { clientId: string } | null
+
+/** Só nesta aba do navegador; some ao fechar a aba. Não use em computador compartilhado. */
+function clientSecretSessionKey(clientId: string): string {
+  return `ff.identity.clientSecret:${clientId}`
+}
+
+function persistClientSecretInSession(clientId: string, secret: string, remember: boolean): void {
+  if (typeof window === 'undefined') return
+  const key = clientSecretSessionKey(clientId)
+  if (remember) sessionStorage.setItem(key, secret)
+  else sessionStorage.removeItem(key)
+}
 
 function StatusBadge({ status }: { status: 'ACTIVE' | 'INACTIVE' }) {
   return (
@@ -59,11 +81,15 @@ export default function McpIntegrationsPage() {
   const updateIntegration = useUpdateIdentityIntegration()
   const rotateSecret = useRotateIntegrationSecret()
   const revokeIntegration = useRevokeIdentityIntegration()
+  const exchangeClientCredentials = useExchangeIdentityClientCredentials()
   const { toast } = useToast()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [secretDialog, setSecretDialog] = useState<SecretDialogState>(null)
   const [revokeId, setRevokeId] = useState<string | null>(null)
+  const [tokenMintDialog, setTokenMintDialog] = useState<TokenMintDialogState>(null)
+  const [mintedToken, setMintedToken] = useState<IdentityClientCredentialsToken | null>(null)
+  const [rememberClientSecretInTab, setRememberClientSecretInTab] = useState(false)
 
   const {
     register,
@@ -74,6 +100,82 @@ export default function McpIntegrationsPage() {
     resolver: zodResolver(createSchema),
     defaultValues: { name: 'Integração MCP', description: '', role: 'MEMBER' },
   })
+
+  const {
+    register: registerTokenMint,
+    handleSubmit: handleSubmitTokenMint,
+    reset: resetTokenMint,
+    setValue: setTokenMintSecret,
+    getValues: getTokenMintValues,
+    formState: { errors: tokenMintErrors, isSubmitting: isTokenMintSubmitting },
+  } = useForm<TokenMintForm>({
+    resolver: zodResolver(tokenMintSchema),
+    defaultValues: { clientSecret: '' },
+  })
+
+  const tokenMintClientId = tokenMintDialog?.clientId ?? null
+
+  useEffect(() => {
+    if (!tokenMintClientId || typeof window === 'undefined') return
+    const stored = sessionStorage.getItem(clientSecretSessionKey(tokenMintClientId))
+    resetTokenMint({ clientSecret: stored ?? '' })
+    setRememberClientSecretInTab(Boolean(stored))
+  }, [tokenMintClientId, resetTokenMint])
+
+  function closeTokenMintDialog() {
+    setTokenMintDialog(null)
+    setMintedToken(null)
+    setRememberClientSecretInTab(false)
+    resetTokenMint({ clientSecret: '' })
+  }
+
+  function openTokenMintDialog(clientId: string) {
+    setMintedToken(null)
+    setTokenMintDialog({ clientId })
+  }
+
+  function forgetStoredClientSecret() {
+    if (!tokenMintDialog || typeof window === 'undefined') return
+    sessionStorage.removeItem(clientSecretSessionKey(tokenMintDialog.clientId))
+    setRememberClientSecretInTab(false)
+    setTokenMintSecret('clientSecret', '')
+    toast('Secret removido desta aba', 'success')
+  }
+
+  async function onTokenMintSubmit(values: TokenMintForm) {
+    if (!tokenMintDialog) return
+    try {
+      const data = await exchangeClientCredentials.mutateAsync({
+        clientId: tokenMintDialog.clientId,
+        clientSecret: values.clientSecret,
+      })
+      setMintedToken(data)
+      persistClientSecretInSession(tokenMintDialog.clientId, values.clientSecret, rememberClientSecretInTab)
+      toast('Access token obtido', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao gerar token', 'error')
+    }
+  }
+
+  async function mintAnotherAccessToken() {
+    if (!tokenMintDialog) return
+    const clientSecret = getTokenMintValues('clientSecret')
+    if (!clientSecret.trim()) {
+      toast('Cole o client secret de novo ou marque “Lembrar nesta aba” e informe uma vez.', 'error')
+      return
+    }
+    try {
+      const data = await exchangeClientCredentials.mutateAsync({
+        clientId: tokenMintDialog.clientId,
+        clientSecret,
+      })
+      setMintedToken(data)
+      persistClientSecretInSession(tokenMintDialog.clientId, clientSecret, rememberClientSecretInTab)
+      toast('Novo access token obtido', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao gerar token', 'error')
+    }
+  }
 
   const baseClients = useMemo(
     () => clients?.filter((client) => client.kind !== 'integration') ?? [],
@@ -301,6 +403,22 @@ export default function McpIntegrationsPage() {
                       variant="outline"
                       size="sm"
                       className="border-border"
+                      disabled={integration.status !== 'ACTIVE' || exchangeClientCredentials.isPending}
+                      title={
+                        integration.status !== 'ACTIVE'
+                          ? 'Ative a integração para solicitar um access token'
+                          : 'OAuth2 client_credentials no Keycloak'
+                      }
+                      onClick={() => openTokenMintDialog(integration.keycloakClientId)}
+                    >
+                      <Ticket className="mr-1.5 h-3.5 w-3.5" />
+                      Gerar token
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-border"
                       disabled={rotateSecret.isPending}
                       onClick={() => void handleRotate(integration.id)}
                     >
@@ -415,6 +533,119 @@ export default function McpIntegrationsPage() {
         onConfirm={() => void handleRevoke()}
         variant="destructive"
       />
+
+      <Dialog
+        open={tokenMintDialog !== null}
+        onClose={closeTokenMintDialog}
+        className="max-w-lg"
+        preventClose={exchangeClientCredentials.isPending || isTokenMintSubmitting}
+      >
+        <DialogHeader title="Gerar access token" onClose={closeTokenMintDialog} />
+        {!mintedToken ? (
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmitTokenMint(onTokenMintSubmit)}>
+            <DialogBody className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                O servidor não grava o secret. Para renovar token várias vezes (ex.: Cursor, token curto), você pode
+                marcar a opção abaixo: o secret fica só no <span className="font-mono text-xs">sessionStorage</span>{' '}
+                desta aba até você fechar o navegador ou clicar em esquecer.
+              </p>
+              <div className="space-y-1.5">
+                <Label>Client ID</Label>
+                <Input readOnly value={tokenMintDialog?.clientId ?? ''} className="font-mono text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mcp-token-client-secret">Client secret</Label>
+                <Input
+                  id="mcp-token-client-secret"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Cole o secret mostrado na criação ou após rotação"
+                  error={tokenMintErrors.clientSecret?.message}
+                  {...registerTokenMint('clientSecret')}
+                />
+              </div>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 rounded border border-input accent-[#7CFC98]"
+                  checked={rememberClientSecretInTab}
+                  onChange={(e) => {
+                    const checked = e.target.checked
+                    setRememberClientSecretInTab(checked)
+                    if (!checked && tokenMintDialog && typeof window !== 'undefined') {
+                      sessionStorage.removeItem(clientSecretSessionKey(tokenMintDialog.clientId))
+                    }
+                  }}
+                />
+                <span>
+                  Lembrar client secret nesta aba (renovar token sem colar de novo até fechar a aba). Evite em PC
+                  compartilhado; extensões maliciosas poderiam ler o armazenamento da sessão.
+                </span>
+              </label>
+              <div>
+                <Button type="button" variant="ghost" size="sm" className="h-auto px-0 text-xs text-muted-foreground" onClick={forgetStoredClientSecret}>
+                  Esquecer secret nesta aba
+                </Button>
+              </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeTokenMintDialog}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={exchangeClientCredentials.isPending || isTokenMintSubmitting}
+                className="border border-[#7CFC98]/40 bg-[#1E281E] text-[#7CFC98]"
+              >
+                {exchangeClientCredentials.isPending ? 'Solicitando…' : 'Gerar token'}
+              </Button>
+            </DialogFooter>
+          </form>
+        ) : (
+          <>
+            <DialogBody className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Use no header <span className="font-mono text-xs">Authorization: Bearer …</span> ao chamar o MCP.
+                {mintedToken.expiresIn > 0 ? (
+                  <>
+                    {' '}
+                    Validade aproximada: <span className="font-mono">{mintedToken.expiresIn}s</span>.
+                  </>
+                ) : null}
+              </p>
+              <div className="space-y-1.5">
+                <Label>Access token</Label>
+                <textarea
+                  readOnly
+                  className="min-h-[140px] w-full resize-y rounded-sm border border-input bg-background px-3 py-2 font-mono text-xs text-foreground"
+                  value={mintedToken.accessToken}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Tipo: {mintedToken.tokenType}</p>
+            </DialogBody>
+            <DialogFooter>
+              <div className="flex w-full flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={exchangeClientCredentials.isPending}
+                  onClick={() => void mintAnotherAccessToken()}
+                >
+                  <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {exchangeClientCredentials.isPending ? 'Gerando…' : 'Gerar outro token'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => void copy(mintedToken.accessToken, 'Token copiado')}>
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                  Copiar token
+                </Button>
+                <Button type="button" onClick={closeTokenMintDialog}>
+                  Fechar
+                </Button>
+              </div>
+            </DialogFooter>
+          </>
+        )}
+      </Dialog>
     </div>
   )
 }

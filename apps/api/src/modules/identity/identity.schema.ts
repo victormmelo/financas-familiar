@@ -14,5 +14,11 @@ export const integrationParamsSchema = z.object({
   id: z.string().uuid(),
 })
 
+export const clientCredentialsSchema = z.object({
+  clientId: z.string().trim().min(1, 'Client ID obrigatório').max(256),
+  clientSecret: z.string().min(1, 'Client secret obrigatório').max(2048),
+})
+
 export type CreateIntegrationInput = z.infer<typeof createIntegrationSchema>
 export type UpdateIntegrationInput = z.infer<typeof updateIntegrationSchema>
+export type ClientCredentialsInput = z.infer<typeof clientCredentialsSchema>

@@ -590,6 +590,18 @@ export interface IdentityClientsResponse {
   clients: ManagedIdentityClient[]
 }
 
+/** Resposta de POST /identity/client-credentials (OAuth2 client_credentials via Keycloak). */
+export interface IdentityClientCredentialsToken {
+  accessToken: string
+  expiresIn: number
+  tokenType: string
+}
+
+export interface IdentityClientCredentialsInput {
+  clientId: string
+  clientSecret: string
+}
+
 // ─── BRL money (input mascarado vs número canônico) ───────────────────────────
 
 export {

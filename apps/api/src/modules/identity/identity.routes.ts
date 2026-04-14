@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import type { TokenPayload } from '../auth/auth.types.js'
 import {
+  clientCredentialsSchema,
   createIntegrationSchema,
   integrationParamsSchema,
   updateIntegrationSchema,
@@ -18,6 +19,12 @@ const identityRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.get('/metadata', async () => ({ data: identityService.getIdentityMetadata() }))
+
+  fastify.post('/client-credentials', async (request) => {
+    const user = request.user as TokenPayload
+    const input = clientCredentialsSchema.parse(request.body)
+    return { data: await identityService.exchangeClientCredentialsToken(user.familyId, input) }
+  })
 
   fastify.get('/clients', async (request) => {
     const user = request.user as TokenPayload

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type {
   CreateIdentityIntegrationInput,
+  IdentityClientCredentialsInput,
+  IdentityClientCredentialsToken,
   IdentityClientsResponse,
   IdentityIntegrationCreated,
   IdentityIntegrationListItem,
@@ -84,6 +86,15 @@ export function useRevokeIdentityIntegration() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['identity', 'integrations'] })
       qc.invalidateQueries({ queryKey: ['identity', 'clients'] })
+    },
+  })
+}
+
+export function useExchangeIdentityClientCredentials() {
+  return useMutation({
+    mutationFn: async (input: IdentityClientCredentialsInput) => {
+      const res = await api.post<{ data: IdentityClientCredentialsToken }>('/identity/client-credentials', input)
+      return res.data
     },
   })
 }
