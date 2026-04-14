@@ -5,6 +5,8 @@ WORKDIR /app
 # --- deps: install all workspace dependencies ---
 FROM base AS deps
 COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/mcp/package.json ./apps/mcp/
 COPY apps/web/package.json ./apps/web/
 COPY packages/shared-types/package.json ./packages/shared-types/
 RUN npm ci
@@ -15,6 +17,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web ./apps/web
 COPY packages/shared-types ./packages/shared-types
 COPY package.json ./
+# next-auth fica em apps/web/node_modules no lockfile; o COPY do código não traz isso do contexto
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 # Garante `public/` para o COPY no runner (projeto pode não ter a pasta no repo)
 RUN mkdir -p apps/web/public
 ENV NEXT_TELEMETRY_DISABLED=1
