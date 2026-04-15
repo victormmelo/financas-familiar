@@ -6,29 +6,66 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { createMcpServer } from './server.js'
 import { validateMcpToken } from './auth.js'
 import { env } from './env.js'
+import {
+  buildOAuthProtectedResourceDocument,
+  buildWwwAuthenticateBearerChallenge,
+  oauthProtectedResourcePaths,
+} from './oauth-resource.js'
+import type { McpContext } from './context.js'
 
 const app = express()
 app.use(express.json())
 
 const PORT = env.MCP_PORT
 
-// Mapa de sessões ativas: sessionId → transport
-const activeSessions = new Map<string, StreamableHTTPServerTransport>()
+function principalKeyOf(ctx: McpContext): string {
+  return `${ctx.principalType}:${ctx.principalId}`
+}
+
+type SessionEntry = {
+  transport: StreamableHTTPServerTransport
+  contextRef: { current: McpContext }
+  principalKey: string
+}
+
+const activeSessions = new Map<string, SessionEntry>()
+
+function sendJson401(res: express.Response, body: Record<string, unknown>) {
+  res.setHeader('WWW-Authenticate', buildWwwAuthenticateBearerChallenge())
+  res.status(401).json(body)
+}
+
+const oauthDoc = buildOAuthProtectedResourceDocument()
+for (const path of oauthProtectedResourcePaths()) {
+  app.get(path, (_req, res) => {
+    res.json(oauthDoc)
+  })
+}
 
 // POST /mcp — recebe mensagens do cliente
 app.post('/mcp', async (req, res) => {
-  const authHeader = req.headers['authorization'] as string | undefined
-
-  // Em sessões existentes, o token já foi validado na inicialização
+  const authHeader = req.headers.authorization as string | undefined
   const sessionId = req.headers['mcp-session-id'] as string | undefined
 
   if (sessionId && activeSessions.has(sessionId)) {
-    const transport = activeSessions.get(sessionId)!
-    await transport.handleRequest(req, res, req.body)
+    const entry = activeSessions.get(sessionId)!
+    if (authHeader?.startsWith('Bearer ')) {
+      const refreshed = await validateMcpToken(authHeader)
+      if (!refreshed) {
+        sendJson401(res, { error: 'Bearer token inválido, expirado ou sem permissão para este recurso.' })
+        return
+      }
+      if (principalKeyOf(refreshed) !== entry.principalKey) {
+        res.setHeader('WWW-Authenticate', buildWwwAuthenticateBearerChallenge())
+        res.status(403).json({ error: 'Token de outro utilizador ou integração; reabra a sessão MCP.' })
+        return
+      }
+      entry.contextRef.current = refreshed
+    }
+    await entry.transport.handleRequest(req, res, req.body)
     return
   }
 
-  // Nova sessão — exige token e mensagem Initialize
   if (!isInitializeRequest(req.body)) {
     res.status(400).json({ error: 'Sessão não encontrada. Envie uma mensagem Initialize primeiro.' })
     return
@@ -36,14 +73,20 @@ app.post('/mcp', async (req, res) => {
 
   const context = await validateMcpToken(authHeader)
   if (!context) {
-    res.status(401).json({ error: 'Bearer token do Keycloak inválido, expirado ou sem vínculo com usuário/integração ativa.' })
+    sendJson401(res, { error: 'Bearer token do Keycloak inválido, expirado ou sem vínculo com utilizador/integração ativa.' })
     return
   }
+
+  const contextRef: { current: McpContext } = { current: context }
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (newSessionId) => {
-      activeSessions.set(newSessionId, transport)
+      activeSessions.set(newSessionId, {
+        transport,
+        contextRef,
+        principalKey: principalKeyOf(context),
+      })
     },
   })
 
@@ -53,7 +96,7 @@ app.post('/mcp', async (req, res) => {
     }
   }
 
-  const server = createMcpServer(context)
+  const server = createMcpServer(() => contextRef.current)
   await server.connect(transport)
   await transport.handleRequest(req, res, req.body)
 })
@@ -66,16 +109,16 @@ app.get('/mcp', async (req, res) => {
     return
   }
 
-  const transport = activeSessions.get(sessionId)!
-  await transport.handleRequest(req, res)
+  const entry = activeSessions.get(sessionId)!
+  await entry.transport.handleRequest(req, res)
 })
 
 // DELETE /mcp — encerra sessão
 app.delete('/mcp', async (req, res) => {
   const sessionId = req.headers['mcp-session-id'] as string | undefined
   if (sessionId && activeSessions.has(sessionId)) {
-    const transport = activeSessions.get(sessionId)!
-    await transport.close()
+    const entry = activeSessions.get(sessionId)!
+    await entry.transport.close()
     activeSessions.delete(sessionId)
   }
   res.status(200).end()
@@ -88,5 +131,6 @@ app.get('/health', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`MCP Server rodando em http://localhost:${PORT}/mcp`)
+  console.log(`OAuth PRM: ${JSON.stringify(oauthDoc.resource)} → ${oauthProtectedResourcePaths().join(', ')}`)
   console.log(`Health check: http://localhost:${PORT}/health`)
 })

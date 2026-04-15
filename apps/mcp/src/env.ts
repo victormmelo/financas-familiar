@@ -13,6 +13,22 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
   KEYCLOAK_ISSUER: z.string().url('KEYCLOAK_ISSUER deve ser uma URL'),
   KEYCLOAK_JWKS_URI: emptyStringToUndefined(z.string().url().optional()),
+  /**
+   * URL pública do endpoint MCP (ex.: https://mcp.exemplo.com/mcp).
+   * Usada como fallback do identificador de recurso OAuth se MCP_RESOURCE_URL não estiver definida.
+   */
+  MCP_PUBLIC_URL: emptyStringToUndefined(z.string().url().optional()),
+  /**
+   * Identificador canónico do recurso protegido (RFC 8707). Deve coincidir com o parâmetro `resource`
+   * no OAuth do ChatGPT e, em geral, com o claim `aud` do access token.
+   * Se omitida, usa MCP_PUBLIC_URL sem barra final (recomendado: definir explicitamente em produção).
+   */
+  MCP_RESOURCE_URL: emptyStringToUndefined(z.string().url().optional()),
+  /** Se true, exige que o token inclua o identificador de recurso em `aud` (fluxo ChatGPT / Apps SDK). */
+  MCP_STRICT_RESOURCE_AUDIENCE: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
 })
 
 const result = envSchema.safeParse(process.env)
@@ -26,4 +42,18 @@ if (!result.success) {
   process.exit(1)
 }
 
-export const env = result.data
+const parsed = result.data
+
+const resolvedResource = (
+  parsed.MCP_RESOURCE_URL ??
+  parsed.MCP_PUBLIC_URL ??
+  `http://localhost:${parsed.MCP_PORT}`
+).replace(/\/$/, '')
+
+const strictAudience = parsed.MCP_STRICT_RESOURCE_AUDIENCE ?? parsed.NODE_ENV === 'production'
+
+export const env = {
+  ...parsed,
+  MCP_RESOURCE_URL: resolvedResource,
+  MCP_STRICT_RESOURCE_AUDIENCE: strictAudience,
+}

@@ -1,7 +1,8 @@
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const familyToolDefinitions = [
+const familyToolDefinitionsBase = [
   {
     name: 'list_family_members',
     description: 'Lista os membros da família com seus papéis (ADMIN/MEMBER).',
@@ -12,13 +13,14 @@ export const familyToolDefinitions = [
   },
 ]
 
+export const familyToolDefinitions = familyToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerFamilyHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('list_family_members', async (_args) => {
+    const { familyId } = getContext()
     const family = await prisma.family.findFirst({
       where: { id: familyId },
       select: {

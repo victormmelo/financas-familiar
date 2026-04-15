@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const budgetToolDefinitions = [
+const budgetToolDefinitionsBase = [
   {
     name: 'get_budget_status',
     description:
@@ -17,13 +18,14 @@ export const budgetToolDefinitions = [
   },
 ]
 
+export const budgetToolDefinitions = budgetToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerBudgetHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('get_budget_status', async (args) => {
+    const { familyId } = getContext()
     const now = new Date()
     const input = z
       .object({

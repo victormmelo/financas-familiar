@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const creditCardToolDefinitions = [
+const creditCardToolDefinitionsBase = [
   {
     name: 'list_credit_cards',
     description: 'Lista os cartões de crédito da família com status da fatura do mês atual.',
@@ -33,13 +34,14 @@ export const creditCardToolDefinitions = [
   },
 ]
 
+export const creditCardToolDefinitions = creditCardToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerCreditCardHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('list_credit_cards', async (_args) => {
+    const { familyId } = getContext()
     const now = new Date()
     const month = now.getMonth() + 1
     const year = now.getFullYear()
@@ -78,6 +80,7 @@ export function registerCreditCardHandlers(
   })
 
   toolHandlerMap.set('get_invoice', async (args) => {
+    const { familyId } = getContext()
     const now = new Date()
     const input = z
       .object({

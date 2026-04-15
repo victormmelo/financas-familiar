@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const categoryToolDefinitions = [
+const categoryToolDefinitionsBase = [
   {
     name: 'list_categories',
     description:
@@ -40,13 +41,14 @@ export const categoryToolDefinitions = [
   },
 ]
 
+export const categoryToolDefinitions = categoryToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerCategoryHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('list_categories', async (args) => {
+    const { familyId } = getContext()
     const { type } = z
       .object({ type: z.enum(['INCOME', 'EXPENSE', 'BOTH']).optional() })
       .parse(args ?? {})
@@ -70,7 +72,8 @@ export function registerCategoryHandlers(
   })
 
   toolHandlerMap.set('create_category', async (args) => {
-    if (context.role !== 'ADMIN') {
+    const { familyId, role } = getContext()
+    if (role !== 'ADMIN') {
       throw new Error('Apenas ADMINs podem criar categorias')
     }
 

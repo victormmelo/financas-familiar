@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const reportToolDefinitions = [
+const reportToolDefinitionsBase = [
   {
     name: 'get_financial_summary',
     description:
@@ -62,13 +63,14 @@ export const reportToolDefinitions = [
   },
 ]
 
+export const reportToolDefinitions = reportToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerReportHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId, userId } = context
-
   toolHandlerMap.set('get_financial_summary', async (args) => {
+    const { familyId } = getContext()
     const { startDate, endDate } = z
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
@@ -137,6 +139,7 @@ export function registerReportHandlers(
   })
 
   toolHandlerMap.set('get_expenses_by_category', async (args) => {
+    const { familyId } = getContext()
     const { startDate, endDate } = z
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
@@ -196,6 +199,7 @@ export function registerReportHandlers(
   })
 
   toolHandlerMap.set('get_cashflow', async (args) => {
+    const { familyId } = getContext()
     const { startDate, endDate } = z
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
@@ -259,6 +263,7 @@ export function registerReportHandlers(
   })
 
   toolHandlerMap.set('trigger_report', async (args) => {
+    const { familyId, userId } = getContext()
     const input = z
       .object({
         type: z.enum(['DRE', 'CASH_FLOW', 'PATRIMONY']),

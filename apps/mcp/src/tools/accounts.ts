@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const accountToolDefinitions = [
+const accountToolDefinitionsBase = [
   {
     name: 'list_accounts',
     description:
@@ -53,6 +54,8 @@ export const accountToolDefinitions = [
   },
 ]
 
+export const accountToolDefinitions = accountToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 async function sumProjectedNonCard(accountId: string) {
   const [income, expense] = await Promise.all([
     prisma.transaction.aggregate({
@@ -100,12 +103,11 @@ async function sumLiquidatedNonCard(accountId: string) {
 }
 
 export function registerAccountHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('list_accounts', async (args) => {
+    const { familyId } = getContext()
     const { includeInactive } = z
       .object({ includeInactive: z.boolean().default(false) })
       .parse(args ?? {})
@@ -145,6 +147,7 @@ export function registerAccountHandlers(
   })
 
   toolHandlerMap.set('get_account_balance', async (args) => {
+    const { familyId } = getContext()
     const { accountId } = z.object({ accountId: z.string() }).parse(args)
 
     const account = await prisma.account.findFirst({ where: { id: accountId, familyId } })
@@ -169,6 +172,7 @@ export function registerAccountHandlers(
   })
 
   toolHandlerMap.set('create_account', async (args) => {
+    const { familyId } = getContext()
     const parsed = z
       .object({
         name: z.string().min(1, 'Nome obrigatório'),

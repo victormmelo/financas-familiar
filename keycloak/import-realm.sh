@@ -8,6 +8,9 @@ escape() {
   printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'
 }
 
+# Identificador OAuth do recurso MCP (sem barra final) — alinha com apps/mcp env MCP_RESOURCE_URL.
+MCP_RESOURCE_IDENTIFIER=$(printf '%s' "${MCP_PUBLIC_URL}" | sed 's/\/$//')
+
 sed \
   -e "s|__KEYCLOAK_REALM__|$(escape "${KEYCLOAK_REALM}")|g" \
   -e "s|__KEYCLOAK_WEB_CLIENT_ID__|$(escape "${KEYCLOAK_WEB_CLIENT_ID}")|g" \
@@ -17,7 +20,10 @@ sed \
   -e "s|__KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET__|$(escape "${KEYCLOAK_IDENTITY_ADMIN_CLIENT_SECRET}")|g" \
   -e "s|__APP_URL__|$(escape "${NEXT_PUBLIC_APP_URL}")|g" \
   -e "s|__MCP_PUBLIC_URL__|$(escape "${MCP_PUBLIC_URL}")|g" \
+  -e "s|__MCP_RESOURCE_IDENTIFIER__|$(escape "${MCP_RESOURCE_IDENTIFIER}")|g" \
   "$template" > "$output"
+
+echo "INFO: Realm importado. Para ChatGPT (DCR): no Keycloak Admin, anexe o client scope 'mcp-resource-audience' aos Default Client Scopes do realm se clients dinâmicos não herdarem o aud do MCP." >&2
 
 /opt/keycloak/bin/kc.sh import --file "$output" --override true
 

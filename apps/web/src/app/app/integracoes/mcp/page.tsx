@@ -308,6 +308,14 @@ export default function McpIntegrationsPage() {
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">MCP endpoint</p>
                   <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.mcpEndpoint}</p>
                 </div>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Resource (RFC 8707)</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.mcpResourceIdentifier}</p>
+                </div>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">OAuth PRM (well-known)</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.oauthProtectedResourceMetadataUrl}</p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
@@ -325,6 +333,15 @@ export default function McpIntegrationsPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => void copy(metadata.mcpEndpoint, 'MCP endpoint copiado')}>
                     <Copy className="mr-1.5 h-3.5 w-3.5" />
                     Copiar MCP endpoint
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copy(metadata.oauthProtectedResourceMetadataUrl, 'URL do PRM copiada')}
+                  >
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    Copiar PRM
                   </Button>
                 </div>
               </>

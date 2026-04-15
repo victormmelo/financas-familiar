@@ -2,8 +2,9 @@ import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const transferToolDefinitions = [
+const transferToolDefinitionsBase = [
   {
     name: 'create_transfer',
     description:
@@ -22,13 +23,14 @@ export const transferToolDefinitions = [
   },
 ]
 
+export const transferToolDefinitions = transferToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerTransferHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId, userId } = context
-
   toolHandlerMap.set('create_transfer', async (args) => {
+    const { familyId, userId } = getContext()
     const input = z
       .object({
         fromAccountId: z.string().uuid(),

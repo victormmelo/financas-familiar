@@ -2,11 +2,13 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose'
 import { prisma } from './prisma.js'
 import type { McpContext } from './context.js'
 import { env } from './env.js'
+import { MCP_OAUTH_SCOPES } from './mcp-scopes.js'
 
 type KeycloakClaims = JWTPayload & {
   sub?: string
   azp?: string
   client_id?: string
+  scope?: string
 }
 
 const issuer = env.KEYCLOAK_ISSUER.replace(/\/$/, '')
@@ -62,6 +64,26 @@ function extractIntegrationClientId(claims: KeycloakClaims): string | null {
   return null
 }
 
+function tokenScopeSet(claims: KeycloakClaims): Set<string> {
+  if (typeof claims.scope !== 'string' || claims.scope.length === 0) return new Set()
+  return new Set(claims.scope.split(/\s+/).filter((s) => s.length > 0))
+}
+
+function userTokenScopesSufficient(claims: KeycloakClaims): boolean {
+  const granted = tokenScopeSet(claims)
+  if (env.NODE_ENV === 'development') {
+    return granted.has('openid') && (granted.has('email') || granted.has('profile'))
+  }
+  return MCP_OAUTH_SCOPES.every((s) => granted.has(s))
+}
+
+function audienceIncludesResource(claims: KeycloakClaims, resource: string): boolean {
+  const aud = claims.aud
+  if (Array.isArray(aud)) return aud.some((a) => a === resource)
+  if (typeof aud === 'string') return aud === resource
+  return false
+}
+
 export async function validateMcpToken(authHeader: string | undefined): Promise<McpContext | null> {
   if (!authHeader?.startsWith('Bearer ')) return null
 
@@ -83,6 +105,10 @@ export async function validateMcpToken(authHeader: string | undefined): Promise<
   })
 
   if (userRecord) {
+    if (!userTokenScopesSufficient(claims)) return null
+    if (env.MCP_STRICT_RESOURCE_AUDIENCE && !audienceIncludesResource(claims, env.MCP_RESOURCE_URL)) {
+      return null
+    }
     return {
       principalType: 'user',
       principalId: userRecord.id,

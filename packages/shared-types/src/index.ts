@@ -580,6 +580,10 @@ export interface IdentityMetadata {
   webClientId: string
   mcpClientId: string
   mcpEndpoint: string
+  /** Identificador canónico do recurso MCP (RFC 8707); deve coincidir com o claim `aud` nos tokens ChatGPT. */
+  mcpResourceIdentifier: string
+  /** URL do documento `/.well-known/oauth-protected-resource` servido pelo MCP. */
+  oauthProtectedResourceMetadataUrl: string
 }
 
 export interface ManagedIdentityClient {

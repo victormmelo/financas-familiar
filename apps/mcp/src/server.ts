@@ -1,6 +1,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { McpContext } from './context.js'
+import { mcpAuthToolErrorResult } from './oauth-resource.js'
 import { transactionToolDefinitions, registerTransactionHandlers } from './tools/transactions.js'
 import { accountToolDefinitions, registerAccountHandlers } from './tools/accounts.js'
 import { categoryToolDefinitions, registerCategoryHandlers } from './tools/categories.js'
@@ -23,7 +24,7 @@ const ALL_TOOL_DEFINITIONS = [
   ...familyToolDefinitions,
 ]
 
-export function createMcpServer(context: McpContext): Server {
+export function createMcpServer(getContext: () => McpContext): Server {
   const server = new Server(
     { name: 'financas-familiar', version: '1.0.0' },
     { capabilities: { tools: {} } },
@@ -32,16 +33,15 @@ export function createMcpServer(context: McpContext): Server {
   // Map de handlers indexado por nome de tool
   const toolHandlerMap = new Map<string, (args: unknown) => Promise<unknown>>()
 
-  // Registra todos os handlers com o contexto do usuário capturado em closure
-  registerTransactionHandlers(server, context, toolHandlerMap)
-  registerAccountHandlers(context, toolHandlerMap)
-  registerCategoryHandlers(context, toolHandlerMap)
-  registerCreditCardHandlers(context, toolHandlerMap)
-  registerTransferHandlers(context, toolHandlerMap)
-  registerGoalHandlers(context, toolHandlerMap)
-  registerBudgetHandlers(context, toolHandlerMap)
-  registerReportHandlers(context, toolHandlerMap)
-  registerFamilyHandlers(context, toolHandlerMap)
+  registerTransactionHandlers(getContext, toolHandlerMap)
+  registerAccountHandlers(getContext, toolHandlerMap)
+  registerCategoryHandlers(getContext, toolHandlerMap)
+  registerCreditCardHandlers(getContext, toolHandlerMap)
+  registerTransferHandlers(getContext, toolHandlerMap)
+  registerGoalHandlers(getContext, toolHandlerMap)
+  registerBudgetHandlers(getContext, toolHandlerMap)
+  registerReportHandlers(getContext, toolHandlerMap)
+  registerFamilyHandlers(getContext, toolHandlerMap)
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: ALL_TOOL_DEFINITIONS,
@@ -65,6 +65,9 @@ export function createMcpServer(context: McpContext): Server {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro interno'
+      if (message === 'MCP_AUTH_REQUIRED') {
+        return mcpAuthToolErrorResult('Autenticação necessária para esta operação.')
+      }
       return {
         content: [{ type: 'text', text: `Erro: ${message}` }],
         isError: true,

@@ -177,6 +177,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://financas:financas_password@localhost:5432/financas_familiar}
       KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
       KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:3002/mcp}
+      MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
+      MCP_STRICT_RESOURCE_AUDIENCE: ${MCP_STRICT_RESOURCE_AUDIENCE:-}
     depends_on:
       postgres:
         condition: service_healthy

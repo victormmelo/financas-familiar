@@ -1,8 +1,7 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
 const createTransactionInput = z
   .object({
@@ -44,7 +43,7 @@ const searchTransactionsInput = z.object({
   status: z.enum(['DRAFT', 'CONFIRMED', 'DELETED']).optional(),
 })
 
-export const transactionToolDefinitions = [
+const transactionToolDefinitionsBase = [
   {
     name: 'list_transactions',
     description:
@@ -202,14 +201,14 @@ export const transactionToolDefinitions = [
   },
 ]
 
+export const transactionToolDefinitions = transactionToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerTransactionHandlers(
-  server: Server,
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId, userId } = context
-
   toolHandlerMap.set('list_transactions', async (args) => {
+    const { familyId } = getContext()
     const input = listTransactionsInput.parse(args)
     const { page, limit, accountId, categoryId, type, status, startDate, endDate, liquidated } = input
     const skip = (page - 1) * limit
@@ -274,6 +273,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('get_transaction', async (args) => {
+    const { familyId } = getContext()
     const { id } = z.object({ id: z.string() }).parse(args)
     const t = await prisma.transaction.findFirst({
       where: { id, familyId },
@@ -307,6 +307,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('create_transaction', async (args) => {
+    const { familyId, userId } = getContext()
     const input = createTransactionInput.parse(args)
 
     let resolvedAccountId = input.accountId
@@ -356,6 +357,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('confirm_transaction', async (args) => {
+    const { familyId } = getContext()
     const { id } = z.object({ id: z.string() }).parse(args)
     const t = await prisma.transaction.findFirst({ where: { id, familyId } })
     if (!t) throw new Error('Transação não encontrada')
@@ -370,6 +372,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('bulk_confirm_transactions', async (args) => {
+    const { familyId } = getContext()
     const { ids } = z.object({ ids: z.array(z.string()) }).parse(args)
     const { count } = await prisma.transaction.updateMany({
       where: { id: { in: ids }, familyId, status: 'DRAFT' },
@@ -379,6 +382,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('update_transaction', async (args) => {
+    const { familyId } = getContext()
     const input = z
       .object({
         id: z.string(),
@@ -415,6 +419,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('delete_transaction', async (args) => {
+    const { familyId } = getContext()
     const { id } = z.object({ id: z.string() }).parse(args)
     const t = await prisma.transaction.findFirst({ where: { id, familyId } })
     if (!t) throw new Error('Transação não encontrada')
@@ -424,6 +429,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('search_transactions', async (args) => {
+    const { familyId } = getContext()
     const input = searchTransactionsInput.parse(args)
 
     const transactions = await prisma.transaction.findMany({
@@ -460,6 +466,7 @@ export function registerTransactionHandlers(
   })
 
   toolHandlerMap.set('bulk_create_transactions', async (args) => {
+    const { familyId, userId } = getContext()
     const { transactions } = z
       .object({ transactions: z.array(createTransactionInput) })
       .parse(args)

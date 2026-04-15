@@ -8,6 +8,32 @@
   "editUsernameAllowed": false,
   "verifyEmail": true,
   "sslRequired": "external",
+  "clientScopes": [
+    {
+      "name": "mcp-resource-audience",
+      "description": "Audience do recurso MCP (RFC 8707 / ChatGPT). Inclui o claim aud no access token.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "mcp-resource-aud-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "aud",
+            "claim.value": "__MCP_RESOURCE_IDENTIFIER__",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
   "clients": [
     {
       "clientId": "__KEYCLOAK_WEB_CLIENT_ID__",
@@ -48,7 +74,7 @@
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+"
       },
-      "defaultClientScopes": ["profile", "email", "roles"],
+      "defaultClientScopes": ["web-origins", "profile", "email", "roles", "mcp-resource-audience"],
       "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
     },
     {

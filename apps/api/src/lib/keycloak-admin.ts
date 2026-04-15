@@ -129,6 +129,32 @@ async function resolveClientInternalId(clientId: string): Promise<string | null>
   return data[0]?.id ?? null
 }
 
+const MCP_RESOURCE_AUDIENCE_SCOPE = 'mcp-resource-audience'
+
+async function findClientScopeIdByName(name: string): Promise<string | null> {
+  const res = await keycloakFetch(realmPath('/client-scopes'))
+  if (!res.ok) return null
+  const rows = (await res.json()) as { id: string; name: string }[]
+  return rows.find((r) => r.name === name)?.id ?? null
+}
+
+/** Garante o client scope de audiência MCP nos tokens deste client (integrações / ChatGPT). */
+export async function attachMcpAudienceClientScopeToClient(clientId: string): Promise<void> {
+  const internalClientId = await resolveClientInternalId(clientId)
+  const scopeId = await findClientScopeIdByName(MCP_RESOURCE_AUDIENCE_SCOPE)
+  if (!internalClientId || !scopeId) return
+
+  const url = realmPath(
+    `/clients/${encodeURIComponent(internalClientId)}/default-client-scopes/${encodeURIComponent(scopeId)}`,
+  )
+  const res = await keycloakFetch(url, { method: 'PUT' })
+  if (res.ok || res.status === 409) return
+  const detail = await readKeycloakErrorBody(res)
+  throw Object.assign(new Error(`Falha ao anexar escopo ${MCP_RESOURCE_AUDIENCE_SCOPE} ao client (${res.status}): ${detail}`), {
+    statusCode: 502,
+  })
+}
+
 export async function createIntegrationClientInKeycloak(input: {
   clientId: string
   name: string
@@ -191,6 +217,8 @@ export async function createIntegrationClientInKeycloak(input: {
   if (!secretData.value) {
     throw Object.assign(new Error('Keycloak não retornou um client secret válido'), { statusCode: 502 })
   }
+
+  await attachMcpAudienceClientScopeToClient(input.clientId)
 
   return { internalId, clientSecret: secretData.value }
 }
@@ -308,10 +336,22 @@ export async function patchIntegrationClientOAuthSettings(clientId: string): Pro
       statusCode: 502,
     })
   }
+
+  await attachMcpAudienceClientScopeToClient(clientId)
 }
 
 export function buildOidcMetadata() {
   const issuer = env.KEYCLOAK_ISSUER.replace(/\/$/, '')
+  const mcpEndpoint = env.MCP_PUBLIC_URL ?? 'http://localhost:3002/mcp'
+  const mcpResourceIdentifier = mcpEndpoint.replace(/\/$/, '')
+  let oauthProtectedResourceMetadataUrl = `${mcpResourceIdentifier}/.well-known/oauth-protected-resource`
+  try {
+    const u = new URL(mcpResourceIdentifier)
+    const prefix = u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : ''
+    oauthProtectedResourceMetadataUrl = `${u.origin}${prefix}/.well-known/oauth-protected-resource`
+  } catch {
+    /* mantém concatenação simples */
+  }
   return {
     issuer,
     realm: env.KEYCLOAK_REALM,
@@ -321,6 +361,8 @@ export function buildOidcMetadata() {
     endSessionEndpoint: `${issuer}/protocol/openid-connect/logout`,
     webClientId: env.KEYCLOAK_WEB_CLIENT_ID,
     mcpClientId: env.KEYCLOAK_MCP_CLIENT_ID,
-    mcpEndpoint: env.MCP_PUBLIC_URL ?? 'http://localhost:3002/mcp',
+    mcpEndpoint,
+    mcpResourceIdentifier,
+    oauthProtectedResourceMetadataUrl,
   }
 }

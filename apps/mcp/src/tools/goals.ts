@@ -1,7 +1,8 @@
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
+import { withMcpToolOAuth } from '../mcp-scopes.js'
 
-export const goalToolDefinitions = [
+const goalToolDefinitionsBase = [
   {
     name: 'list_goals',
     description: 'Lista as metas financeiras da família com progresso atual.',
@@ -17,13 +18,14 @@ export const goalToolDefinitions = [
   },
 ]
 
+export const goalToolDefinitions = goalToolDefinitionsBase.map((t) => withMcpToolOAuth(t))
+
 export function registerGoalHandlers(
-  context: McpContext,
+  getContext: () => McpContext,
   toolHandlerMap: Map<string, (args: unknown) => Promise<unknown>>,
 ) {
-  const { familyId } = context
-
   toolHandlerMap.set('list_goals', async (args) => {
+    const { familyId } = getContext()
     const includeCompleted = (args as { includeCompleted?: boolean })?.includeCompleted ?? false
 
     const goals = await prisma.goal.findMany({
