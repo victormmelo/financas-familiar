@@ -158,9 +158,14 @@ services:
       AUTH_KEYCLOAK_ID: ${AUTH_KEYCLOAK_ID:-financas-web}
       AUTH_KEYCLOAK_SECRET: ${AUTH_KEYCLOAK_SECRET:-}
       AUTH_KEYCLOAK_ISSUER: ${AUTH_KEYCLOAK_ISSUER:-http://localhost:8080/realms/financas-familiar}
+      # Com network_mode: host (igual ao Keycloak), o OIDC interno usa loopback. Vazio = só HTTPS público (discovery).
+      AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_INTERNAL_ISSUER:-http://127.0.0.1:8080/realms/financas-familiar}
       AUTH_KEYCLOAK_END_SESSION_URL: ${AUTH_KEYCLOAK_END_SESSION_URL:-http://localhost:8080/realms/financas-familiar/protocol/openid-connect/logout}
     depends_on:
-      - api
+      keycloak:
+        condition: service_started
+      api:
+        condition: service_started
     network_mode: host
     restart: unless-stopped
 

@@ -1,8 +1,15 @@
 import NextAuth from 'next-auth'
 import Keycloak from 'next-auth/providers/keycloak'
 
-const issuer = process.env.AUTH_KEYCLOAK_ISSUER ?? ''
-const clientId = process.env.AUTH_KEYCLOAK_ID ?? ''
+/** Realm OIDC público (sem barra final) — deve coincidir com o claim `iss` dos tokens. */
+const issuer = (process.env.AUTH_KEYCLOAK_ISSUER ?? '').trim().replace(/\/+$/, '')
+/**
+ * Base do realm acessível **do servidor Next** (HTTP local), quando o HTTPS público
+ * (ex.: Cloudflare → origin) devolve 502 no fetch de discovery/token feito pelo Node.
+ * O browser continua a usar `authorization_endpoint` HTTPS vindo do JSON do Keycloak.
+ */
+const internalIssuer = (process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER ?? '').trim().replace(/\/+$/, '')
+const clientId = (process.env.AUTH_KEYCLOAK_ID ?? '').trim()
 const clientSecret = process.env.AUTH_KEYCLOAK_SECRET?.trim() || undefined
 
 /** Renovar o access token ~90s antes do exp (skew de relógio). */
@@ -72,7 +79,7 @@ function selectOidcToken(account: { access_token?: unknown; id_token?: unknown }
 }
 
 function keycloakTokenUrl(): string {
-  const base = issuer.replace(/\/+$/, '')
+  const base = (internalIssuer || issuer).replace(/\/+$/, '')
   return `${base}/protocol/openid-connect/token`
 }
 
@@ -127,6 +134,7 @@ async function refreshKeycloakAccessToken(refreshToken: string): Promise<{
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   basePath: '/api/auth',
+  trustHost: true,
   providers: [
     Keycloak({
       issuer,
@@ -134,6 +142,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       ...(clientSecret ? { clientSecret } : {}),
       client: clientSecret ? undefined : { token_endpoint_auth_method: 'none' },
       authorization: { params: { scope: 'openid email profile' } },
+      ...(internalIssuer
+        ? {
+            wellKnown: `${internalIssuer}/.well-known/openid-configuration`,
+            token: `${internalIssuer}/protocol/openid-connect/token`,
+            userinfo: `${internalIssuer}/protocol/openid-connect/userinfo`,
+          }
+        : {}),
     }),
   ],
   callbacks: {
