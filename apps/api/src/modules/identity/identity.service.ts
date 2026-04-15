@@ -4,6 +4,7 @@ import {
   buildOidcMetadata,
   createIntegrationClientInKeycloak,
   disableIntegrationClient,
+  patchIntegrationClientOAuthSettings,
   rotateIntegrationClientSecret,
   updateClientEnabledState,
 } from '../../lib/keycloak-admin.js'
@@ -54,6 +55,12 @@ export async function listIntegrations(familyId: string) {
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
   })
   return rows.map(normalizeIntegration)
+}
+
+export async function repairIntegrationOauthInKeycloak(familyId: string, integrationId: string) {
+  const integration = await getIntegrationOwnedByFamily(familyId, integrationId)
+  await patchIntegrationClientOAuthSettings(integration.keycloakClientId)
+  return { keycloakClientId: integration.keycloakClientId }
 }
 
 export async function createIntegration(user: { sub: string; familyId: string }, input: CreateIntegrationInput) {

@@ -42,6 +42,8 @@ const envSchema = z.object({
   KEYCLOAK_ADMIN_USERNAME: z.string().min(1).optional(),
   KEYCLOAK_ADMIN_PASSWORD: z.string().min(1).optional(),
   KEYCLOAK_JWKS_URI: emptyStringToUndefined(z.string().url().optional()),
+  /** Lista separada por vírgula; se vazio, a API usa redirects padrão para conectores ChatGPT/OpenAI. */
+  KEYCLOAK_INTEGRATION_REDIRECT_URIS: z.string().optional(),
 
   // App
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

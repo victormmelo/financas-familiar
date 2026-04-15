@@ -7,6 +7,7 @@ import type {
   IdentityClientsResponse,
   IdentityIntegrationCreated,
   IdentityIntegrationListItem,
+  IdentityIntegrationOauthRepaired,
   IdentityIntegrationRotatedSecret,
   IdentityMetadata,
   UpdateIdentityIntegrationInput,
@@ -74,6 +75,15 @@ export function useRotateIntegrationSecret() {
   return useMutation({
     mutationFn: async (id: string) => {
       const res = await api.post<{ data: IdentityIntegrationRotatedSecret }>(`/identity/integrations/${id}/rotate-secret`)
+      return res.data
+    },
+  })
+}
+
+export function useRepairIntegrationOauth() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.post<{ data: IdentityIntegrationOauthRepaired }>(`/identity/integrations/${id}/repair-oauth`)
       return res.data
     },
   })

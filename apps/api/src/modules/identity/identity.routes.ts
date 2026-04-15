@@ -56,6 +56,12 @@ const identityRoutes: FastifyPluginAsync = async (fastify) => {
     return { data: await identityService.rotateSecret(user.familyId, id) }
   })
 
+  fastify.post<{ Params: { id: string } }>('/integrations/:id/repair-oauth', async (request) => {
+    const user = request.user as TokenPayload
+    const { id } = integrationParamsSchema.parse(request.params)
+    return { data: await identityService.repairIntegrationOauthInKeycloak(user.familyId, id) }
+  })
+
   fastify.delete<{ Params: { id: string } }>('/integrations/:id', async (request, reply) => {
     const user = request.user as TokenPayload
     const { id } = integrationParamsSchema.parse(request.params)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, KeyRound, Plus, RefreshCcw, ShieldCheck, Ticket, Trash2 } from 'lucide-react'
+import { Copy, KeyRound, Plus, RefreshCcw, ShieldCheck, Ticket, Trash2, Wrench } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -21,6 +21,7 @@ import {
   useIdentityIntegrations,
   useIdentityMetadata,
   useManagedIdentityClients,
+  useRepairIntegrationOauth,
   useRevokeIdentityIntegration,
   useRotateIntegrationSecret,
   useUpdateIdentityIntegration,
@@ -80,6 +81,7 @@ export default function McpIntegrationsPage() {
   const createIntegration = useCreateIdentityIntegration()
   const updateIntegration = useUpdateIdentityIntegration()
   const rotateSecret = useRotateIntegrationSecret()
+  const repairOauth = useRepairIntegrationOauth()
   const revokeIntegration = useRevokeIdentityIntegration()
   const exchangeClientCredentials = useExchangeIdentityClientCredentials()
   const { toast } = useToast()
@@ -211,6 +213,15 @@ export default function McpIntegrationsPage() {
     }
   }
 
+  async function handleRepairOauth(id: string) {
+    try {
+      await repairOauth.mutateAsync(id)
+      toast('Keycloak atualizado com redirects do ChatGPT (OAuth)', 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao atualizar OAuth no Keycloak', 'error')
+    }
+  }
+
   async function handleRotate(id: string) {
     try {
       const result = await rotateSecret.mutateAsync(id)
@@ -262,7 +273,11 @@ export default function McpIntegrationsPage() {
         <Card className="border-border bg-card">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Metadados OIDC</CardTitle>
-            <CardDescription>Esses endpoints alimentam clientes MCP e automações externas.</CardDescription>
+            <CardDescription>
+              Esses endpoints alimentam clientes MCP e automações externas. Em conectores OAuth (ex.: ChatGPT), use o
+              authorization endpoint abaixo — não use o Issuer como URL de login; o Issuer sozinho só devolve JSON de
+              metadados.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {!metadata ? (
@@ -273,6 +288,14 @@ export default function McpIntegrationsPage() {
               </div>
             ) : (
               <>
+                <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Authorization endpoint (OAuth / login)
+                  </p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">
+                    {metadata.authorizationEndpoint}
+                  </p>
+                </div>
                 <div className="rounded-sm border border-border bg-[#111611]/50 p-3">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Issuer</p>
                   <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.issuer}</p>
@@ -286,6 +309,15 @@ export default function McpIntegrationsPage() {
                   <p className="mt-1 break-all font-mono text-xs text-foreground">{metadata.mcpEndpoint}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copy(metadata.authorizationEndpoint, 'Authorization endpoint copiado')}
+                  >
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    Copiar authorization endpoint
+                  </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => void copy(metadata.tokenEndpoint, 'Token endpoint copiado')}>
                     <Copy className="mr-1.5 h-3.5 w-3.5" />
                     Copiar token endpoint
@@ -355,7 +387,10 @@ export default function McpIntegrationsPage() {
       <Card className="border-border">
         <CardHeader>
           <CardTitle className="text-base">Integrações técnicas</CardTitle>
-          <CardDescription>Clients confidenciais criados pela sua UI para uso no MCP e em fluxos server-to-server.</CardDescription>
+          <CardDescription>
+            Clients confidenciais para MCP. Se o ChatGPT mostrar “Invalid parameter: redirect_uri”, use “Corrigir OAuth
+            ChatGPT” (ou crie outra integração após atualizar a API).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -413,6 +448,18 @@ export default function McpIntegrationsPage() {
                     >
                       <Ticket className="mr-1.5 h-3.5 w-3.5" />
                       Gerar token
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-border"
+                      disabled={repairOauth.isPending}
+                      title="Ativa fluxo browser e adiciona https://chatgpt.com/connector/oauth/* no Keycloak"
+                      onClick={() => void handleRepairOauth(integration.id)}
+                    >
+                      <Wrench className="mr-1.5 h-3.5 w-3.5" />
+                      Corrigir OAuth ChatGPT
                     </Button>
                     <Button
                       type="button"

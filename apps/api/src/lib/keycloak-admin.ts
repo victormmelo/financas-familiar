@@ -1,5 +1,28 @@
 import { env } from '../env.js'
 
+/** Redirects aceitos no fluxo authorization code (ex.: conector MCP no ChatGPT). */
+const DEFAULT_INTEGRATION_REDIRECT_URIS = [
+  'https://chatgpt.com/connector/oauth/*',
+  'https://chat.openai.com/connector/oauth/*',
+] as const
+
+const DEFAULT_INTEGRATION_WEB_ORIGINS = ['https://chatgpt.com', 'https://chat.openai.com'] as const
+
+function integrationRedirectUris(): string[] {
+  const raw = env.KEYCLOAK_INTEGRATION_REDIRECT_URIS?.trim()
+  if (raw) {
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+  }
+  return [...DEFAULT_INTEGRATION_REDIRECT_URIS]
+}
+
+function integrationWebOrigins(): string[] {
+  return [...DEFAULT_INTEGRATION_WEB_ORIGINS]
+}
+
 type KeycloakAccessTokenResponse = {
   access_token?: string
 }
@@ -118,14 +141,19 @@ export async function createIntegrationClientInKeycloak(input: {
     protocol: 'openid-connect',
     publicClient: false,
     bearerOnly: false,
-    standardFlowEnabled: false,
+    /** Necessário para OAuth no navegador (ex.: ChatGPT); mantém client_credentials via service account. */
+    standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     serviceAccountsEnabled: true,
     implicitFlowEnabled: false,
     frontchannelLogout: false,
     enabled: true,
-    redirectUris: [] as string[],
-    webOrigins: [] as string[],
+    redirectUris: integrationRedirectUris(),
+    webOrigins: integrationWebOrigins(),
+    attributes: {
+      'pkce.code.challenge.method': 'S256',
+      'post.logout.redirect.uris': '+',
+    },
     defaultClientScopes: ['web-origins', 'roles', 'profile', 'email'],
     optionalClientScopes: ['address', 'phone', 'offline_access', 'microprofile-jwt'],
   }
@@ -222,6 +250,64 @@ export async function rotateIntegrationClientSecret(clientId: string): Promise<s
 
 export async function disableIntegrationClient(clientId: string): Promise<void> {
   await updateClientEnabledState(clientId, false)
+}
+
+/**
+ * Garante redirects e standard flow para integrações já criadas antes do suporte a OAuth no ChatGPT.
+ * Faz merge com redirect URIs já configurados no Keycloak.
+ */
+export async function patchIntegrationClientOAuthSettings(clientId: string): Promise<void> {
+  const internalId = await resolveClientInternalId(clientId)
+  if (!internalId) {
+    throw Object.assign(new Error('Client não encontrado no Keycloak'), { statusCode: 404 })
+  }
+
+  const currentRes = await keycloakFetch(realmPath(`/clients/${encodeURIComponent(internalId)}`))
+  if (!currentRes.ok) {
+    const detail = await readKeycloakErrorBody(currentRes)
+    throw Object.assign(new Error(`Falha ao consultar client no Keycloak (${currentRes.status}): ${detail}`), {
+      statusCode: 502,
+    })
+  }
+
+  const current = (await currentRes.json()) as Record<string, unknown>
+  const existingRedirects = Array.isArray(current.redirectUris)
+    ? (current.redirectUris as string[]).filter((u) => typeof u === 'string' && u.length > 0)
+    : []
+  const mergedRedirects = [...new Set([...existingRedirects, ...integrationRedirectUris()])]
+
+  const existingOrigins = Array.isArray(current.webOrigins)
+    ? (current.webOrigins as string[]).filter((u) => typeof u === 'string' && u.length > 0)
+    : []
+  const mergedOrigins = [...new Set([...existingOrigins, ...integrationWebOrigins()])]
+
+  const prevAttrs =
+    typeof current.attributes === 'object' && current.attributes !== null && !Array.isArray(current.attributes)
+      ? (current.attributes as Record<string, string>)
+      : {}
+
+  const res = await keycloakFetch(realmPath(`/clients/${encodeURIComponent(internalId)}`), {
+    method: 'PUT',
+    body: JSON.stringify({
+      ...current,
+      standardFlowEnabled: true,
+      serviceAccountsEnabled: true,
+      redirectUris: mergedRedirects,
+      webOrigins: mergedOrigins,
+      attributes: {
+        ...prevAttrs,
+        'pkce.code.challenge.method': 'S256',
+        'post.logout.redirect.uris': prevAttrs['post.logout.redirect.uris'] ?? '+',
+      },
+    }),
+  })
+
+  if (!res.ok) {
+    const detail = await readKeycloakErrorBody(res)
+    throw Object.assign(new Error(`Falha ao atualizar OAuth do client no Keycloak (${res.status}): ${detail}`), {
+      statusCode: 502,
+    })
+  }
 }
 
 export function buildOidcMetadata() {

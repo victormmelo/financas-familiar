@@ -555,6 +555,11 @@ export interface IdentityIntegrationRotatedSecret {
   clientSecret: string
 }
 
+/** Resposta de POST /identity/integrations/:id/repair-oauth */
+export interface IdentityIntegrationOauthRepaired {
+  keycloakClientId: string
+}
+
 export interface CreateIdentityIntegrationInput {
   name: string
   description?: string
