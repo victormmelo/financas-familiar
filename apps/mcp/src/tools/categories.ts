@@ -94,6 +94,16 @@ export function registerCategoryHandlers(
       if (!parent) {
         throw new Error('Categoria pai não encontrada')
       }
+      if (parent.parentId !== null) {
+        throw new Error(
+          'A categoria pai deve ser uma categoria raiz; não é permitido aninhar subcategorias.',
+        )
+      }
+      if (parent.type !== parsed.type) {
+        throw new Error(
+          'Subcategoria deve ter o mesmo tipo que a categoria pai (incluindo BOTH apenas com pai BOTH).',
+        )
+      }
     }
 
     const category = await prisma.category.create({

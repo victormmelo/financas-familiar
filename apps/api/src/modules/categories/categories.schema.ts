@@ -13,6 +13,7 @@ export const createCategorySchema = z.object({
 export const updateCategorySchema = z.object({
   name: z.string().min(1).optional(),
   type: categoryTypeEnum.optional(),
+  parentId: z.union([z.string().uuid(), z.null()]).optional(),
   icon: z.string().optional(),
   color: z.string().optional(),
   isActive: z.boolean().optional(),

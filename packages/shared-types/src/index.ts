@@ -178,6 +178,16 @@ export interface CreateCategoryInput {
   color?: string
 }
 
+export interface UpdateCategoryInput {
+  name?: string
+  type?: CategoryType
+  /** Omitido = não altera; `null` = categoria raiz. */
+  parentId?: string | null
+  icon?: string
+  color?: string
+  isActive?: boolean
+}
+
 // ─── Transaction ──────────────────────────────────────────────────────────────
 
 export interface Transaction {

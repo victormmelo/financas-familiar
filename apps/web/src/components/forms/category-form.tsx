@@ -1,6 +1,7 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { useEffect, useMemo } from 'react'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,10 @@ interface Props {
   parentCategories?: Category[]
 }
 
+function isRootWithChildren(cat: Category): boolean {
+  return !cat.parentId && (cat.children?.length ?? 0) > 0
+}
+
 export function CategoryForm({ open, onClose, category, parentCategories }: Props) {
   const create = useCreateCategory()
   const update = useUpdateCategory()
@@ -36,18 +41,61 @@ export function CategoryForm({ open, onClose, category, parentCategories }: Prop
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: category
-      ? { name: category.name, type: category.type, parentId: category.parentId, color: category.color }
-      : { type: 'EXPENSE' },
+      ? {
+          name: category.name,
+          type: category.type,
+          parentId: category.parentId ?? '',
+          color: category.color,
+        }
+      : { type: 'EXPENSE', parentId: '' },
   })
+
+  const watchedType = useWatch({ control, name: 'type' })
+
+  useEffect(() => {
+    if (!open) return
+    reset(
+      category
+        ? {
+            name: category.name,
+            type: category.type,
+            parentId: category.parentId ?? '',
+            color: category.color,
+          }
+        : { type: 'EXPENSE', parentId: '' },
+    )
+  }, [open, category, reset])
+
+  const parentsForCreate = useMemo(() => {
+    if (!parentCategories || category) return []
+    return parentCategories.filter((c) => c.type === watchedType)
+  }, [parentCategories, category, watchedType])
+
+  const parentsForEdit = useMemo(() => {
+    if (!category || !parentCategories) return []
+    return parentCategories.filter((c) => c.type === category.type && c.id !== category.id)
+  }, [category, parentCategories])
+
+  const showParentOnEdit = Boolean(category && !isRootWithChildren(category))
 
   async function onSubmit(data: FormData) {
     try {
       if (category) {
-        await update.mutateAsync({ id: category.id, name: data.name, type: data.type, color: data.color })
+        const payload: Parameters<typeof update.mutateAsync>[0] = {
+          id: category.id,
+          name: data.name,
+          type: data.type,
+          color: data.color,
+        }
+        if (!isRootWithChildren(category)) {
+          payload.parentId = data.parentId === '' ? null : data.parentId
+        }
+        await update.mutateAsync(payload)
         toast('Categoria atualizada!', 'success')
       } else {
         await create.mutateAsync({ ...data, parentId: data.parentId || undefined })
@@ -71,18 +119,42 @@ export function CategoryForm({ open, onClose, category, parentCategories }: Prop
           </div>
           <div className="space-y-1.5">
             <Label>Tipo</Label>
-            <Select error={errors.type?.message} {...register('type')}>
+            <Select error={errors.type?.message} {...register('type')} disabled={!!category?.parentId}>
               <option value="EXPENSE">Despesa</option>
               <option value="INCOME">Receita</option>
               <option value="BOTH">Ambos</option>
             </Select>
+            {category?.parentId ? (
+              <p className="text-[10px] text-muted-foreground">
+                Subcategoria deve manter o mesmo tipo que a categoria pai.
+              </p>
+            ) : null}
           </div>
           {!category && parentCategories && parentCategories.length > 0 && (
             <div className="space-y-1.5">
               <Label>Categoria Pai (opcional)</Label>
               <Select {...register('parentId')}>
-                <option value="">Nenhuma</option>
-                {parentCategories.map((c) => (
+                <option value="">Nenhuma (categoria raiz)</option>
+                {parentsForCreate.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Só aparecem raízes com o mesmo tipo selecionado acima.
+              </p>
+            </div>
+          )}
+          {category && isRootWithChildren(category) && (
+            <p className="text-xs text-muted-foreground rounded-sm border border-border bg-muted/30 p-2">
+              Esta categoria tem subcategorias. Para torná-la filha de outra raiz, mova ou exclua as subcategorias antes.
+            </p>
+          )}
+          {showParentOnEdit && (
+            <div className="space-y-1.5">
+              <Label>Categoria pai</Label>
+              <Select {...register('parentId')}>
+                <option value="">Nenhuma (categoria raiz)</option>
+                {parentsForEdit.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </Select>

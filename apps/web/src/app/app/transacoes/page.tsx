@@ -39,6 +39,7 @@ import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { EntryLaunchContextBar } from '@/components/layout/entry-launch-context-bar'
+import { flattenCategoriesForSelect } from '@/lib/category-select-options'
 
 const filterSelectClass =
   'h-10 min-h-10 w-full text-sm md:h-8 md:min-h-0'
@@ -91,9 +92,10 @@ export default function TransacoesPage() {
   const bulkTypes = useMemo(() => new Set(selectedTxs.map((t) => t.type)), [selectedTxs])
   const canBulkCategorize = selectedTxs.length > 0 && bulkTypes.size === 1
   const bulkType = canBulkCategorize ? selectedTxs[0]!.type : undefined
-  const filteredBulkCategories = categories?.filter(
-    (c) => bulkType !== undefined && (c.type === bulkType || c.type === 'BOTH'),
-  )
+  const filteredBulkCategoryOptions = useMemo(() => {
+    if (!categories || bulkType === undefined) return []
+    return flattenCategoriesForSelect(categories, bulkType)
+  }, [categories, bulkType])
 
   useEffect(() => {
     if (!canBulkCategorize) setBulkCategoryPanelOpen(false)
@@ -398,9 +400,9 @@ export default function TransacoesPage() {
                         onChange={(e) => setBulkCategoryId(e.target.value)}
                       >
                         <option value="">Sem categoria</option>
-                        {filteredBulkCategories?.map((c) => (
+                        {filteredBulkCategoryOptions.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name}
+                            {c.label}
                           </option>
                         ))}
                       </Select>
@@ -756,9 +758,9 @@ export default function TransacoesPage() {
                   onChange={(e) => setBulkCategoryId(e.target.value)}
                 >
                   <option value="">Sem categoria</option>
-                  {filteredBulkCategories?.map((c) => (
+                  {filteredBulkCategoryOptions.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {c.label}
                     </option>
                   ))}
                 </Select>

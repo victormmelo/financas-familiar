@@ -16,6 +16,7 @@ import { useCreditCards } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
+import { flattenCategoriesForSelect } from '@/lib/category-select-options'
 import { normalizeReaisForApi, type UserEntryPreferences } from '@financas/shared-types'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -263,9 +264,10 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     return () => clearTimeout(t)
   }, [open, transaction, createEntry, expenseSettlement])
 
-  const filteredCategories = categories?.filter(
-    (c) => c.type === selectedType || c.type === 'BOTH',
-  )
+  const categorySelectOptions = useMemo(() => {
+    if (!categories || !selectedType) return []
+    return flattenCategoriesForSelect(categories, selectedType)
+  }, [categories, selectedType])
 
   const headerDescription = useMemo(() => {
     if (isEdit) return undefined
@@ -556,9 +558,9 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
               <Label htmlFor="tx-form-category">Categoria</Label>
               <Select id="tx-form-category" {...register('categoryId')}>
                 <option value="">Sem categoria</option>
-                {filteredCategories?.map((c) => (
+                {categorySelectOptions.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {c.label}
                   </option>
                 ))}
               </Select>

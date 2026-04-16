@@ -59,8 +59,18 @@ export function useCreateCategory() {
 export function useUpdateCategory() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; type?: string; icon?: string; color?: string; isActive?: boolean }) =>
-      api.patch<Category>(`/categories/${id}`, data),
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: string
+      name?: string
+      type?: string
+      icon?: string
+      color?: string
+      isActive?: boolean
+      parentId?: string | null
+    }) => api.patch<Category>(`/categories/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] }),
   })
 }

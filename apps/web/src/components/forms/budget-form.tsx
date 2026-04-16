@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -13,6 +14,7 @@ import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { currentMonth } from '@/lib/utils'
+import { flattenExpenseCategoriesForSelect } from '@/lib/category-select-options'
 import { normalizeReaisForApi } from '@financas/shared-types'
 
 const schema = z.object({
@@ -74,7 +76,10 @@ export function BudgetForm({ open, onClose, budget }: Props) {
     }
   }
 
-  const expenseCategories = categories?.filter((c) => c.type === 'EXPENSE' || c.type === 'BOTH')
+  const expenseCategoryOptions = useMemo(
+    () => flattenExpenseCategoriesForSelect(categories ?? []),
+    [categories],
+  )
 
   return (
     <Dialog open={open} onClose={onClose} className="max-w-md" preventClose={isSubmitting}>
@@ -85,8 +90,8 @@ export function BudgetForm({ open, onClose, budget }: Props) {
             <Label>Categoria</Label>
             <Select error={errors.categoryId?.message} {...register('categoryId')} disabled={!!budget}>
               <option value="">Selecione uma categoria</option>
-              {expenseCategories?.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+              {expenseCategoryOptions.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
               ))}
             </Select>
           </div>
