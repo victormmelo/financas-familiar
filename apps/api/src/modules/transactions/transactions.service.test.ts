@@ -81,6 +81,7 @@ const mockCategory = {
   color: null,
   createdAt: new Date(),
   updatedAt: new Date(),
+  _count: { subcategories: 0 },
 }
 
 beforeEach(() => {
@@ -264,6 +265,30 @@ describe('createTransaction', () => {
         confirmed: false,
       }),
     ).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('deve lançar 422 quando categoria for agrupadora (tem subcategorias)', async () => {
+    vi.mocked(prisma.account.findFirst).mockResolvedValue(mockAccount as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue({
+      ...mockCategory,
+      id: 'cat-pai',
+      _count: { subcategories: 2 },
+    } as never)
+
+    await expect(
+      createTransaction('family-1', 'user-1', {
+        accountId: 'acc-1',
+        categoryId: 'cat-pai',
+        type: 'EXPENSE',
+        amount: 100,
+        description: 'Teste',
+        date: '2026-04-01',
+        source: 'MANUAL',
+        isRecurring: false,
+        confirmed: false,
+      }),
+    ).rejects.toMatchObject({ statusCode: 422 })
+    expect(prisma.transaction.create).not.toHaveBeenCalled()
   })
 
   it('deve persistir creditCardId quando cartão pertence à família', async () => {
@@ -534,6 +559,20 @@ describe('bulkSetCategory', () => {
       bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-x' }),
     ).rejects.toMatchObject({ statusCode: 404 })
   })
+
+  it('deve lançar 422 quando categoria for agrupadora', async () => {
+    vi.mocked(prisma.transaction.findMany).mockResolvedValue([{ id: 'tx-1', type: 'EXPENSE' }] as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue({
+      ...mockCategory,
+      id: 'cat-pai',
+      _count: { subcategories: 1 },
+    } as never)
+
+    await expect(
+      bulkSetCategory('family-1', { ids: ['tx-1'], categoryId: 'cat-pai' }),
+    ).rejects.toMatchObject({ statusCode: 422 })
+    expect(prisma.transaction.updateMany).not.toHaveBeenCalled()
+  })
 })
 
 describe('updateTransaction', () => {
@@ -549,6 +588,42 @@ describe('updateTransaction', () => {
         data: expect.objectContaining({ liquidated: true }),
       }),
     )
+  })
+
+  it('deve atualizar categoryId quando categoria for folha', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue(mockTransaction as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue({
+      ...mockCategory,
+      id: 'cat-leaf',
+      _count: { subcategories: 0 },
+    } as never)
+    vi.mocked(prisma.transaction.update).mockResolvedValue({
+      ...mockTransaction,
+      categoryId: 'cat-leaf',
+    } as never)
+
+    await updateTransaction('family-1', 'tx-1', { categoryId: 'cat-leaf' })
+
+    expect(prisma.category.findFirst).toHaveBeenCalled()
+    expect(prisma.transaction.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ categoryId: 'cat-leaf' }),
+      }),
+    )
+  })
+
+  it('deve lançar 422 ao definir categoria agrupadora', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue(mockTransaction as never)
+    vi.mocked(prisma.category.findFirst).mockResolvedValue({
+      ...mockCategory,
+      id: 'cat-pai',
+      _count: { subcategories: 1 },
+    } as never)
+
+    await expect(updateTransaction('family-1', 'tx-1', { categoryId: 'cat-pai' })).rejects.toMatchObject({
+      statusCode: 422,
+    })
+    expect(prisma.transaction.update).not.toHaveBeenCalled()
   })
 })
 

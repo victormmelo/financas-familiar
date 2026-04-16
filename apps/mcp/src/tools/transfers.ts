@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { z } from 'zod'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../prisma.js'
@@ -53,7 +54,7 @@ export function registerTransferHandlers(
     if (!toAccount) throw new Error('Conta de destino não encontrada')
 
     const description = input.description ?? `Transferência: ${fromAccount.name} → ${toAccount.name}`
-    const date = new Date(input.date)
+    const date = parsePlainDate(input.date)
 
     const transfer = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const newTransfer = await tx.transfer.create({

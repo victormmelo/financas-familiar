@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { Worker, Queue } from 'bullmq'
 import { RRule } from 'rrule'
 import { prisma } from '../lib/prisma.js'
@@ -112,7 +113,7 @@ export const recurringTransactionsWorker = new Worker<RecurringTransactionsJobDa
   'recurring-transactions',
   async (job) => {
     // Se targetDate fornecido, usa como ponto de partida; senão usa hoje
-    const startDate = job.data.targetDate ? new Date(job.data.targetDate) : new Date()
+    const startDate = job.data.targetDate ? parsePlainDate(job.data.targetDate) : new Date()
     const endDate = new Date(startDate)
     endDate.setDate(endDate.getDate() + LOOKAHEAD_DAYS)
 

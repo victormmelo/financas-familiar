@@ -39,7 +39,7 @@ import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
 import { formatCurrency, formatDate, cn } from '@/lib/utils'
 import { EntryLaunchContextBar } from '@/components/layout/entry-launch-context-bar'
-import { flattenCategoriesForSelect } from '@/lib/category-select-options'
+import { flattenLeafCategoriesForSelect } from '@/lib/category-select-options'
 
 const filterSelectClass =
   'h-10 min-h-10 w-full text-sm md:h-8 md:min-h-0'
@@ -94,7 +94,7 @@ export default function TransacoesPage() {
   const bulkType = canBulkCategorize ? selectedTxs[0]!.type : undefined
   const filteredBulkCategoryOptions = useMemo(() => {
     if (!categories || bulkType === undefined) return []
-    return flattenCategoriesForSelect(categories, bulkType)
+    return flattenLeafCategoriesForSelect(categories, bulkType)
   }, [categories, bulkType])
 
   useEffect(() => {

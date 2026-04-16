@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { Worker } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
 import { redisBullmq } from '../lib/redis.js'
@@ -6,9 +7,9 @@ import type { ReportJobData } from './reports.queue.js'
 async function generateDRE(familyId: string, params: ReportJobData['params']) {
   const now = new Date()
   const start = params.startDate
-    ? new Date(params.startDate)
+    ? parsePlainDate(params.startDate)
     : new Date(now.getFullYear(), now.getMonth(), 1)
-  const end = params.endDate ? new Date(params.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const end = params.endDate ? parsePlainDate(params.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0)
 
   const transactions = await prisma.transaction.findMany({
     where: {

@@ -16,7 +16,11 @@ import { useCreditCards } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput } from '@/lib/utils'
-import { flattenCategoriesForSelect } from '@/lib/category-select-options'
+import {
+  findCategoryById,
+  findCategoryPathNames,
+  flattenLeafCategoriesForSelect,
+} from '@/lib/category-select-options'
 import { normalizeReaisForApi, type UserEntryPreferences } from '@financas/shared-types'
 import { useAuthStore } from '@/stores/auth.store'
 
@@ -173,6 +177,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     watch,
     reset,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -264,10 +269,33 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
     return () => clearTimeout(t)
   }, [open, transaction, createEntry, expenseSettlement])
 
+  useEffect(() => {
+    if (!open || !categories || isEdit) return
+    const leaves = flattenLeafCategoriesForSelect(categories, selectedType)
+    const ids = new Set(leaves.map((o) => o.id))
+    const current = getValues('categoryId')?.trim()
+    if (current && !ids.has(current)) {
+      setValue('categoryId', '', { shouldValidate: true })
+    }
+  }, [open, categories, selectedType, isEdit, setValue, getValues])
+
   const categorySelectOptions = useMemo(() => {
     if (!categories || !selectedType) return []
-    return flattenCategoriesForSelect(categories, selectedType)
-  }, [categories, selectedType])
+    const leaves = flattenLeafCategoriesForSelect(categories, selectedType)
+    if (isEdit && transaction?.categoryId) {
+      const cid = transaction.categoryId
+      const leafIds = new Set(leaves.map((l) => l.id))
+      if (!leafIds.has(cid)) {
+        const node = findCategoryById(categories, cid)
+        if (node && (node.children?.length ?? 0) > 0) {
+          const path = findCategoryPathNames(categories, cid)
+          const labelPath = path?.join(' › ') ?? node.name
+          return [{ id: cid, label: `${labelPath} (agrupadora — escolha uma subcategoria)` }, ...leaves]
+        }
+      }
+    }
+    return leaves
+  }, [categories, selectedType, isEdit, transaction?.categoryId])
 
   const headerDescription = useMemo(() => {
     if (isEdit) return undefined
@@ -281,6 +309,18 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
 
   async function onSubmit(data: FormData) {
     try {
+      if (categories && data.categoryId?.trim()) {
+        const leaves = flattenLeafCategoriesForSelect(categories, data.type)
+        const allowed = new Set(leaves.map((o) => o.id))
+        if (!allowed.has(data.categoryId.trim())) {
+          toast(
+            'Categorias agrupadoras não recebem lançamento. Escolha uma subcategoria ou deixe sem categoria.',
+            'error',
+          )
+          return
+        }
+      }
+
       if (transaction) {
         await update.mutateAsync({
           id: transaction.id,
@@ -564,6 +604,9 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
                   </option>
                 ))}
               </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Só é possível classificar em categorias sem subcategorias (folha).
+              </p>
             </div>
             <div className="min-w-0 space-y-1.5">
               <Label htmlFor="tx-form-date">

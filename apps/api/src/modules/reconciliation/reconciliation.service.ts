@@ -1,4 +1,5 @@
 import type { Multipart, MultipartValue } from '@fastify/multipart'
+import { parsePlainDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { calculateBalance } from '../accounts/accounts.service.js'
 import { parseOFX } from './reconciliation.parser.ofx.js'
@@ -154,7 +155,7 @@ export async function createStatementItem(familyId: string, input: CreateStateme
       type: input.type,
       amount: input.amount,
       description: input.description,
-      date: new Date(input.date),
+      date: parsePlainDate(input.date),
       status: 'PENDING',
     },
     include: {
@@ -177,8 +178,8 @@ export async function listStatementItems(familyId: string, query: ListStatementI
     ...(query.startDate || query.endDate
       ? {
           date: {
-            ...(query.startDate && { gte: new Date(query.startDate) }),
-            ...(query.endDate && { lte: new Date(query.endDate) }),
+            ...(query.startDate && { gte: parsePlainDate(query.startDate) }),
+            ...(query.endDate && { lte: parsePlainDate(query.endDate) }),
           },
         }
       : {}),
@@ -232,8 +233,8 @@ export async function runMatching(familyId: string, input: RunMatchingInput) {
   return runAutoMatch(
     familyId,
     input.accountId,
-    new Date(input.startDate),
-    new Date(input.endDate),
+    parsePlainDate(input.startDate),
+    parsePlainDate(input.endDate),
   )
 }
 
@@ -317,6 +318,20 @@ export async function convertItem(
     })
     if (session?.source === 'OFX') source = 'OFX'
     else if (session?.source === 'CSV') source = 'CSV'
+  }
+
+  if (input.categoryId) {
+    const category = await prisma.category.findFirst({
+      where: { id: input.categoryId, familyId },
+      include: { _count: { select: { subcategories: true } } },
+    })
+    if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+    if (category._count.subcategories > 0) {
+      throw Object.assign(
+        new Error('Categorias agrupadoras não recebem lançamento. Use uma subcategoria.'),
+        { statusCode: 422 },
+      )
+    }
   }
 
   const transaction = await prisma.transaction.create({

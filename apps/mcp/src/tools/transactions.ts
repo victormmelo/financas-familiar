@@ -1,3 +1,5 @@
+import { parsePlainDate } from '@financas/shared-types'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
@@ -223,8 +225,8 @@ export function registerTransactionHandlers(
       ...(startDate || endDate
         ? {
             date: {
-              ...(startDate && { gte: new Date(startDate) }),
-              ...(endDate && { lte: new Date(endDate) }),
+              ...(startDate && { gte: parsePlainDate(startDate) }),
+              ...(endDate && { lte: parsePlainDate(endDate) }),
             },
           }
         : {}),
@@ -342,7 +344,7 @@ export function registerTransactionHandlers(
         amount: input.amount,
         description: input.description,
         notes: input.notes,
-        date: new Date(input.date),
+        date: parsePlainDate(input.date),
         source: 'MANUAL',
         creditCardId: input.creditCardId,
         liquidated: input.liquidated ?? false,
@@ -405,7 +407,7 @@ export function registerTransactionHandlers(
       data: {
         ...(updates.description !== undefined && { description: updates.description }),
         ...(updates.amount !== undefined && { amount: updates.amount }),
-        ...(updates.date !== undefined && { date: new Date(updates.date) }),
+        ...(updates.date !== undefined && { date: parsePlainDate(updates.date) }),
         ...(updates.categoryId !== undefined && { categoryId: updates.categoryId }),
         ...(updates.notes !== undefined && { notes: updates.notes }),
         ...(updates.liquidated !== undefined && { liquidated: updates.liquidated }),
@@ -438,7 +440,7 @@ export function registerTransactionHandlers(
         ...(input.accountId && { accountId: input.accountId }),
         ...(input.type && { type: input.type }),
         ...(input.status ? { status: input.status } : { status: { not: 'DELETED' as const } }),
-        date: { gte: new Date(input.dateFrom), lte: new Date(input.dateTo) },
+        date: { gte: parsePlainDate(input.dateFrom), lte: parsePlainDate(input.dateTo) },
         ...(input.amountMin !== undefined || input.amountMax !== undefined
           ? {
               amount: {
@@ -471,7 +473,7 @@ export function registerTransactionHandlers(
       .object({ transactions: z.array(createTransactionInput) })
       .parse(args)
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const out: { id: string }[] = []
       for (const input of transactions) {
         let resolvedAccountId = input.accountId
@@ -499,7 +501,7 @@ export function registerTransactionHandlers(
             amount: input.amount,
             description: input.description,
             notes: input.notes,
-            date: new Date(input.date),
+            date: parsePlainDate(input.date),
             source: 'MANUAL',
             creditCardId: input.creditCardId,
             liquidated: input.liquidated ?? false,

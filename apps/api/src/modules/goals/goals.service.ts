@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { calculateBalance } from '../accounts/accounts.service.js'
 import type { CreateGoalInput, UpdateGoalInput } from './goals.schema.js'
@@ -65,7 +66,7 @@ export async function createGoal(familyId: string, input: CreateGoalInput) {
       name: input.name,
       targetAmount: input.targetAmount,
       currentAmount: input.currentAmount,
-      deadline: input.deadline ? new Date(input.deadline) : undefined,
+      deadline: input.deadline ? parsePlainDate(input.deadline) : undefined,
       accountId: input.accountId,
       icon: input.icon,
       color: input.color,
@@ -90,7 +91,7 @@ export async function updateGoal(familyId: string, goalId: string, input: Update
       ...(input.targetAmount !== undefined && { targetAmount: input.targetAmount }),
       ...(input.currentAmount !== undefined && { currentAmount: input.currentAmount }),
       ...(input.deadline !== undefined && {
-        deadline: input.deadline ? new Date(input.deadline) : null,
+        deadline: input.deadline ? parsePlainDate(input.deadline) : null,
       }),
       ...(input.accountId !== undefined && { accountId: input.accountId }),
       ...(input.icon !== undefined && { icon: input.icon }),

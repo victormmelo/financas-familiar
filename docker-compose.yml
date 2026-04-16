@@ -121,6 +121,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-noreply@financas-familiar.local}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      APP_CALENDAR_TIMEZONE: ${APP_CALENDAR_TIMEZONE:-America/Sao_Paulo}
     depends_on:
       postgres:
         condition: service_healthy
@@ -187,6 +188,7 @@ services:
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:3002/mcp}
       MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:-}
       MCP_STRICT_RESOURCE_AUDIENCE: ${MCP_STRICT_RESOURCE_AUDIENCE:-}
+      APP_CALENDAR_TIMEZONE: ${APP_CALENDAR_TIMEZONE:-America/Sao_Paulo}
     depends_on:
       postgres:
         condition: service_healthy

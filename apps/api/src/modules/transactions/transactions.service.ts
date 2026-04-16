@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { randomUUID } from 'crypto'
 import { RRule } from 'rrule'
@@ -14,6 +15,18 @@ function statusForNewTransaction(confirmed: boolean | undefined) {
   return confirmed
     ? ({ status: 'CONFIRMED' as const, confirmedAt: new Date() })
     : ({ status: 'DRAFT' as const, confirmedAt: null })
+}
+
+/** Transações só podem usar categoria folha (sem subcategorias). */
+function assertCategoryIsLeafForTransaction(
+  category: { _count: { subcategories: number } },
+): void {
+  if (category._count.subcategories > 0) {
+    throw Object.assign(
+      new Error('Categorias agrupadoras não recebem lançamento. Use uma subcategoria.'),
+      { statusCode: 422 },
+    )
+  }
 }
 
 /** Resolve `accountId` a partir do payload (conta explícita ou padrão do cartão). */
@@ -66,8 +79,8 @@ export async function listTransactions(familyId: string, query: ListTransactions
     ...(startDate || endDate
       ? {
           date: {
-            ...(startDate && { gte: new Date(startDate) }),
-            ...(endDate && { lte: new Date(endDate) }),
+            ...(startDate && { gte: parsePlainDate(startDate) }),
+            ...(endDate && { lte: parsePlainDate(endDate) }),
           },
         }
       : {}),
@@ -161,8 +174,12 @@ export async function createTransaction(familyId: string, userId: string, input:
   )
 
   if (input.categoryId) {
-    const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
+    const category = await prisma.category.findFirst({
+      where: { id: input.categoryId, familyId },
+      include: { _count: { select: { subcategories: true } } },
+    })
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+    assertCategoryIsLeafForTransaction(category)
   }
 
   const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
@@ -179,7 +196,7 @@ export async function createTransaction(familyId: string, userId: string, input:
       amount: input.amount,
       description: input.description,
       notes: input.notes,
-      date: new Date(input.date),
+      date: parsePlainDate(input.date),
       source: input.source,
       isRecurring: input.isRecurring,
       rrule: input.rrule,
@@ -223,12 +240,16 @@ export async function createInstallmentTransaction(
   )
 
   if (input.categoryId) {
-    const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
+    const category = await prisma.category.findFirst({
+      where: { id: input.categoryId, familyId },
+      include: { _count: { select: { subcategories: true } } },
+    })
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+    assertCategoryIsLeafForTransaction(category)
   }
 
   const installmentGroupId = randomUUID()
-  const baseDate = new Date(input.date)
+  const baseDate = parsePlainDate(input.date)
   const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
 
   const transactions = await prisma.$transaction(
@@ -397,6 +418,7 @@ export async function bulkSetCategory(familyId: string, input: BulkSetCategoryIn
   if (categoryIdToSet !== null) {
     const category = await prisma.category.findFirst({
       where: { id: categoryIdToSet, familyId },
+      include: { _count: { select: { subcategories: true } } },
     })
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
     if (!categoryMatchesTransactionType(category.type, transactionType)) {
@@ -405,6 +427,7 @@ export async function bulkSetCategory(familyId: string, input: BulkSetCategoryIn
         { statusCode: 400 },
       )
     }
+    assertCategoryIsLeafForTransaction(category)
   }
 
   const { count } = await prisma.transaction.updateMany({
@@ -428,6 +451,21 @@ export async function updateTransaction(familyId: string, transactionId: string,
     throw Object.assign(new Error('Não é possível editar transação excluída'), { statusCode: 409 })
   }
 
+  if (input.categoryId !== undefined && input.categoryId !== null) {
+    const category = await prisma.category.findFirst({
+      where: { id: input.categoryId, familyId },
+      include: { _count: { select: { subcategories: true } } },
+    })
+    if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+    if (!categoryMatchesTransactionType(category.type, transaction.type)) {
+      throw Object.assign(
+        new Error('Categoria incompatível com o tipo da transação'),
+        { statusCode: 400 },
+      )
+    }
+    assertCategoryIsLeafForTransaction(category)
+  }
+
   return prisma.transaction.update({
     where: { id: transactionId },
     data: {
@@ -435,7 +473,7 @@ export async function updateTransaction(familyId: string, transactionId: string,
       ...(input.amount !== undefined && { amount: input.amount }),
       ...(input.description !== undefined && { description: input.description }),
       ...(input.notes !== undefined && { notes: input.notes }),
-      ...(input.date !== undefined && { date: new Date(input.date) }),
+      ...(input.date !== undefined && { date: parsePlainDate(input.date) }),
       ...(input.liquidated !== undefined && { liquidated: input.liquidated }),
     },
     include: {

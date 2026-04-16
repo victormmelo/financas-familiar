@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
@@ -75,7 +76,7 @@ export function registerReportHandlers(
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
 
-    const dateFilter = { gte: new Date(startDate), lte: new Date(endDate) }
+    const dateFilter = { gte: parsePlainDate(startDate), lte: parsePlainDate(endDate) }
 
     const [income, expense, accounts] = await Promise.all([
       prisma.transaction.aggregate({
@@ -144,7 +145,7 @@ export function registerReportHandlers(
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
 
-    const dateFilter = { gte: new Date(startDate), lte: new Date(endDate) }
+    const dateFilter = { gte: parsePlainDate(startDate), lte: parsePlainDate(endDate) }
 
     const transactions = await prisma.transaction.findMany({
       where: {
@@ -204,8 +205,8 @@ export function registerReportHandlers(
       .object({ startDate: z.string(), endDate: z.string() })
       .parse(args)
 
-    const start = new Date(startDate)
-    const end = new Date(endDate)
+    const start = parsePlainDate(startDate)
+    const end = parsePlainDate(endDate)
 
     const months: { year: number; month: number }[] = []
     const cur = new Date(start.getFullYear(), start.getMonth(), 1)

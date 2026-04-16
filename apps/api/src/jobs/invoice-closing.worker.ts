@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { Worker, Queue } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
 import { redisBullmq } from '../lib/redis.js'
@@ -104,7 +105,7 @@ async function processInvoiceClosings(targetDate: Date) {
 export const invoiceClosingWorker = new Worker<InvoiceClosingJobData>(
   'invoice-closing',
   async (job) => {
-    const targetDate = job.data.targetDate ? new Date(job.data.targetDate) : new Date()
+    const targetDate = job.data.targetDate ? parsePlainDate(job.data.targetDate) : new Date()
     const result = await processInvoiceClosings(targetDate)
     console.log(
       `[InvoiceClosing] Data: ${targetDate.toISOString().slice(0, 10)} | Cartões: ${result.cards} | Fechadas: ${result.closed} | Pré-criadas: ${result.preCreated}`,

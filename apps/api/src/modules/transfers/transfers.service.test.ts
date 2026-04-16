@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Decimal } from '@prisma/client/runtime/library'
 
@@ -95,8 +96,8 @@ describe('listTransfers', () => {
           familyId: 'family-1',
           fromAccountId: 'acc-from',
           date: {
-            gte: new Date('2026-04-01'),
-            lte: new Date('2026-04-30'),
+            gte: parsePlainDate('2026-04-01'),
+            lte: parsePlainDate('2026-04-30'),
           },
         }),
       }),

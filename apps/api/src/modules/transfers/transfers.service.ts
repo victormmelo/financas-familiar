@@ -1,3 +1,4 @@
+import { parsePlainDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import type { Prisma } from '@prisma/client'
 import type { CreateTransferInput, ListTransfersInput } from './transfers.schema.js'
@@ -13,8 +14,8 @@ export async function listTransfers(familyId: string, query: ListTransfersInput)
     ...(startDate || endDate
       ? {
           date: {
-            ...(startDate && { gte: new Date(startDate) }),
-            ...(endDate && { lte: new Date(endDate) }),
+            ...(startDate && { gte: parsePlainDate(startDate) }),
+            ...(endDate && { lte: parsePlainDate(endDate) }),
           },
         }
       : {}),
@@ -60,7 +61,7 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
   if (!toAccount) throw Object.assign(new Error('Conta de destino não encontrada'), { statusCode: 404 })
 
   const description = input.description ?? `Transferência: ${fromAccount.name} → ${toAccount.name}`
-  const date = new Date(input.date)
+  const date = parsePlainDate(input.date)
 
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const transfer = await tx.transfer.create({

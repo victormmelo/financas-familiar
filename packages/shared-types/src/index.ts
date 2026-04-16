@@ -631,6 +631,8 @@ export {
   reaisNumberToCents,
 } from './money-brl'
 
+export { getAppCalendarTimeZone, parsePlainDate, PLAIN_DATE_RE } from './plain-date'
+
 // ─── API Error ────────────────────────────────────────────────────────────────
 
 export interface ApiErrorResponse {
