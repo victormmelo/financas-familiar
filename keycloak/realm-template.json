@@ -7,6 +7,14 @@
   "resetPasswordAllowed": true,
   "editUsernameAllowed": false,
   "verifyEmail": true,
+  "defaultDefaultClientScopes": [
+    "profile",
+    "email",
+    "mcp-resource-audience"
+  ],
+  "defaultOptionalClientScopes": [
+    "offline_access"
+  ],
   "sslRequired": "external",
   "clientScopes": [
     {

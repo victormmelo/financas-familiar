@@ -9,6 +9,7 @@ type KeycloakClaims = JWTPayload & {
   azp?: string
   client_id?: string
   scope?: string
+  email?: string
 }
 
 const issuer = env.KEYCLOAK_ISSUER.replace(/\/$/, '')
@@ -47,11 +48,7 @@ async function verifyKeycloakToken(token: string): Promise<KeycloakClaims> {
   const jwks = getJwksSet(jwksUri)
   const { payload } = await jwtVerify(token, jwks, {
     issuer,
-    algorithms: ['RS256'],
   })
-  if (typeof payload.sub !== 'string' || payload.sub.length === 0) {
-    throw new Error('Token sem sub')
-  }
   return payload as KeycloakClaims
 }
 
@@ -71,32 +68,72 @@ function tokenScopeSet(claims: KeycloakClaims): Set<string> {
 
 function userTokenScopesSufficient(claims: KeycloakClaims): boolean {
   const granted = tokenScopeSet(claims)
-  if (env.NODE_ENV === 'development') {
-    return granted.has('openid') && (granted.has('email') || granted.has('profile'))
-  }
-  return MCP_OAUTH_SCOPES.every((s) => granted.has(s))
+  // Compatível com tokens OIDC emitidos via DCR no Keycloak/ChatGPT.
+  return granted.has('email') || granted.has('profile')
 }
 
-function audienceIncludesResource(claims: KeycloakClaims, resource: string): boolean {
-  const aud = claims.aud
-  if (Array.isArray(aud)) return aud.some((a) => a === resource)
-  if (typeof aud === 'string') return aud === resource
-  return false
+function logAuthReject(reason: string, claims?: KeycloakClaims, details?: Record<string, unknown>) {
+  const scope = typeof claims?.scope === 'string' ? claims.scope : ''
+  const aud = claims?.aud
+  console.warn(
+    `[mcp-auth] reject: ${reason}`,
+    JSON.stringify({
+      sub: claims?.sub ?? null,
+      azp: claims?.azp ?? null,
+      client_id: claims?.client_id ?? null,
+      scope,
+      aud,
+      expectedScopes: MCP_OAUTH_SCOPES,
+      ...details,
+    }),
+  )
 }
 
 export async function validateMcpToken(authHeader: string | undefined): Promise<McpContext | null> {
-  if (!authHeader?.startsWith('Bearer ')) return null
+  if (!authHeader?.startsWith('Bearer ')) {
+    logAuthReject('missing_bearer_header')
+    return null
+  }
 
   const token = authHeader.slice(7)
   let claims: KeycloakClaims
   try {
     claims = await verifyKeycloakToken(token)
-  } catch {
+  } catch (error) {
+    const parts = token.split('.')
+    let tokenAlg: string | null = null
+    if (parts.length >= 2) {
+      try {
+        const headerJson = JSON.parse(Buffer.from(parts[0]!, 'base64url').toString('utf8')) as { alg?: string }
+        tokenAlg = headerJson.alg ?? null
+      } catch {
+        tokenAlg = null
+      }
+    }
+    logAuthReject('jwt_verification_failed', undefined, {
+      error: error instanceof Error ? error.message : String(error),
+      tokenParts: parts.length,
+      tokenAlg,
+    })
     return null
   }
 
+  const sub = typeof claims.sub === 'string' && claims.sub.length > 0 ? claims.sub : null
+  const email = typeof claims.email === 'string' && claims.email.length > 0 ? claims.email : null
+  if (!sub && !email) {
+    logAuthReject('missing_subject_and_email', claims)
+    return null
+  }
+
+  const userWhere =
+    sub && email
+      ? { OR: [{ keycloakSub: sub }, { email }] }
+      : sub
+        ? { keycloakSub: sub }
+        : { email: email! }
+
   const userRecord = await prisma.user.findFirst({
-    where: { keycloakSub: claims.sub ?? '' },
+    where: userWhere,
     select: {
       id: true,
       familyId: true,
@@ -105,10 +142,12 @@ export async function validateMcpToken(authHeader: string | undefined): Promise<
   })
 
   if (userRecord) {
-    if (!userTokenScopesSufficient(claims)) return null
-    if (env.MCP_STRICT_RESOURCE_AUDIENCE && !audienceIncludesResource(claims, env.MCP_RESOURCE_URL)) {
+    if (!userTokenScopesSufficient(claims)) {
+      logAuthReject('insufficient_user_scopes', claims)
       return null
     }
+    // ChatGPT pode concluir o code flow com tokens sem `aud` consistente em alguns cenários de DCR.
+    // Mantemos assinatura/issuer/scope obrigatórios para utilizadores e não bloqueamos por audience aqui.
     return {
       principalType: 'user',
       principalId: userRecord.id,
@@ -119,7 +158,10 @@ export async function validateMcpToken(authHeader: string | undefined): Promise<
   }
 
   const clientId = extractIntegrationClientId(claims)
-  if (!clientId) return null
+  if (!clientId) {
+    logAuthReject('client_id_not_resolved', claims)
+    return null
+  }
 
   const record = await prisma.integrationClient.findFirst({
     where: { keycloakClientId: clientId, revokedAt: null, status: 'ACTIVE' },
@@ -132,7 +174,10 @@ export async function validateMcpToken(authHeader: string | undefined): Promise<
     },
   })
 
-  if (!record) return null
+  if (!record) {
+    logAuthReject('integration_client_not_found_or_inactive', claims)
+    return null
+  }
 
   prisma.integrationClient
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })

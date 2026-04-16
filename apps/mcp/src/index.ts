@@ -11,6 +11,12 @@ import {
   buildWwwAuthenticateBearerChallenge,
   oauthProtectedResourcePaths,
 } from './oauth-resource.js'
+import {
+  getMirroredOAuthAuthorizationServerMetadata,
+  getMirroredOpenIdConfigurationMetadata,
+  oauthDynamicClientRegistrationProxyPaths,
+  oauthAuthorizationServerMirrorPaths,
+} from './oauth-as-metadata-mirror.js'
 import type { McpContext } from './context.js'
 
 const app = express()
@@ -40,6 +46,56 @@ for (const path of oauthProtectedResourcePaths()) {
   app.get(path, (_req, res) => {
     res.json(oauthDoc)
   })
+}
+
+for (const path of oauthAuthorizationServerMirrorPaths()) {
+  app.get(path, async (_req, res) => {
+    try {
+      const doc = path.endsWith('/openid-configuration')
+        ? await getMirroredOpenIdConfigurationMetadata()
+        : await getMirroredOAuthAuthorizationServerMetadata()
+      res.json(doc)
+    } catch {
+      res.status(502).json({
+        error: 'Falha ao obter metadata do servidor de autorização (Keycloak).',
+      })
+    }
+  })
+}
+
+async function proxyDynamicClientRegistration(req: express.Request, res: express.Response) {
+  const endpoint = `${env.KEYCLOAK_ISSUER.replace(/\/$/, '')}/clients-registrations/openid-connect`
+  const headers = new Headers()
+  headers.set('Content-Type', 'application/json')
+
+  const auth = req.headers.authorization
+  if (typeof auth === 'string' && auth.length > 0) {
+    headers.set('Authorization', auth)
+  }
+
+  try {
+    const upstream = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req.body ?? {}),
+    })
+    res.status(upstream.status)
+
+    const contentType = upstream.headers.get('content-type')
+    if (contentType) res.setHeader('Content-Type', contentType)
+    const location = upstream.headers.get('location')
+    if (location) res.setHeader('Location', location)
+
+    res.send(await upstream.text())
+  } catch {
+    res.status(502).json({
+      error: 'Falha ao encaminhar registo dinâmico de cliente para o Keycloak.',
+    })
+  }
+}
+
+for (const path of oauthDynamicClientRegistrationProxyPaths()) {
+  app.post(path, proxyDynamicClientRegistration)
 }
 
 // POST /mcp — recebe mensagens do cliente
@@ -132,5 +188,7 @@ app.get('/health', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`MCP Server rodando em http://localhost:${PORT}/mcp`)
   console.log(`OAuth PRM: ${JSON.stringify(oauthDoc.resource)} → ${oauthProtectedResourcePaths().join(', ')}`)
+  console.log(`OAuth AS mirror (well-known): ${oauthAuthorizationServerMirrorPaths().join(', ')}`)
+  console.log(`OAuth DCR proxy: ${oauthDynamicClientRegistrationProxyPaths().join(', ')}`)
   console.log(`Health check: http://localhost:${PORT}/health`)
 })

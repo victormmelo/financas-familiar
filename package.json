@@ -22,7 +22,10 @@
     "docker:up": "docker compose up -d",
     "docker:up:all": "docker compose --profile apps up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "keycloak:patch-dcr": "node keycloak/patch-dcr-trusted-hosts.mjs",
+    "keycloak:patch-dcr-scopes": "node keycloak/patch-dcr-realm-default-scopes.mjs",
+    "keycloak:verify-dcr": "node keycloak/verify-dcr-readiness.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.3",
