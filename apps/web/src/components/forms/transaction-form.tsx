@@ -23,6 +23,7 @@ import {
 } from '@/lib/category-select-options'
 import { normalizeReaisForApi, type UserEntryPreferences } from '@financas/shared-types'
 import { useAuthStore } from '@/stores/auth.store'
+import { formatUserFacingApiError } from '@/lib/api-error-message'
 
 // ─── RRULE builder helpers ────────────────────────────────────────────────────
 
@@ -384,7 +385,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
       }
       onClose()
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Erro ao salvar transação', 'error')
+      toast(formatUserFacingApiError(err), 'error')
     }
   }
 

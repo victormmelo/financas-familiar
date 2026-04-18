@@ -23,10 +23,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const toast = React.useCallback((message: string, type: ToastType = 'info') => {
     const id = Math.random().toString(36).slice(2)
+    const durationMs = type === 'error' ? 6000 : 4000
     setToasts((prev) => [...prev, { id, message, type }])
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, 4000)
+    }, durationMs)
   }, [])
 
   const remove = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id))
@@ -48,7 +49,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             {t.type === 'success' && <CheckCircle className="h-5 w-5 shrink-0" />}
             {t.type === 'error' && <AlertCircle className="h-5 w-5 shrink-0" />}
             {t.type === 'info' && <Info className="h-5 w-5 shrink-0" />}
-            <p className="flex-1">{t.message}</p>
+            <p className="flex-1 whitespace-pre-line">{t.message}</p>
             <button onClick={() => remove(t.id)} className="shrink-0 opacity-60 hover:opacity-100">
               <X className="h-4 w-4" />
             </button>

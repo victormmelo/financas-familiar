@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
 import { formatDateInput, toPlainDateInputValue } from '@/lib/utils'
 import { normalizeReaisForApi } from '@financas/shared-types'
+import { formatUserFacingApiError } from '@/lib/api-error-message'
 
 const BRL_FORMATTER = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -190,7 +191,7 @@ export function ReimbursementQuickDialog({
       }
       onClose()
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Erro ao salvar', 'error')
+      toast(formatUserFacingApiError(err), 'error')
     }
   }
 

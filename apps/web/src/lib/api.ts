@@ -12,15 +12,60 @@ const API_URL = resolvePublicApiUrl()
 
 let accessToken: string | null = null
 
+/** Erros por campo vindos do Zod na API (`issues` no JSON de erro). */
+export type ApiFieldErrors = Record<string, string[] | undefined>
+
+function parseApiErrorBody(data: Record<string, unknown>): {
+  message: string
+  code?: string
+  fieldErrors?: ApiFieldErrors
+  formErrors?: string[]
+} {
+  const message = typeof data.message === 'string' ? data.message : ''
+  const code = typeof data.code === 'string' ? data.code : undefined
+
+  let fieldErrors: ApiFieldErrors | undefined
+  const issues = data.issues
+  if (issues && typeof issues === 'object' && issues !== null && !Array.isArray(issues)) {
+    const acc: ApiFieldErrors = {}
+    for (const [key, val] of Object.entries(issues as Record<string, unknown>)) {
+      if (Array.isArray(val) && val.every((x) => typeof x === 'string')) {
+        acc[key] = val as string[]
+      }
+    }
+    if (Object.keys(acc).length > 0) fieldErrors = acc
+  }
+
+  let formErrors: string[] | undefined
+  const rawForm = data.formErrors
+  if (Array.isArray(rawForm) && rawForm.every((x) => typeof x === 'string')) {
+    formErrors = rawForm as string[]
+  }
+
+  return { message, code, fieldErrors, formErrors }
+}
+
 export class ApiClientError extends Error {
   status: number
   code?: string
+  fieldErrors?: ApiFieldErrors
+  formErrors?: string[]
 
-  constructor(message: string, options: { status: number; code?: string }) {
+  constructor(
+    message: string,
+    options: {
+      status: number
+      code?: string
+      fieldErrors?: ApiFieldErrors
+      formErrors?: string[]
+    },
+  ) {
     super(message)
     this.name = 'ApiClientError'
     this.status = options.status
     this.code = options.code
+    this.fieldErrors = options.fieldErrors
+    this.formErrors = options.formErrors
   }
 }
 
@@ -78,9 +123,12 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   }
 
   if (!res.ok) {
-    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Erro na requisição', {
+    const parsed = parseApiErrorBody(data)
+    throw new ApiClientError(parsed.message || 'Erro na requisição', {
       status: res.status,
-      code: typeof data.code === 'string' ? data.code : undefined,
+      code: parsed.code,
+      fieldErrors: parsed.fieldErrors,
+      formErrors: parsed.formErrors,
     })
   }
 
@@ -142,9 +190,12 @@ export async function apiFetchMultipart<T = unknown>(
   }
 
   if (!res.ok) {
-    throw new ApiClientError(typeof data.message === 'string' ? data.message : 'Erro no upload', {
+    const parsed = parseApiErrorBody(data)
+    throw new ApiClientError(parsed.message || 'Erro no upload', {
       status: res.status,
-      code: typeof data.code === 'string' ? data.code : undefined,
+      code: parsed.code,
+      fieldErrors: parsed.fieldErrors,
+      formErrors: parsed.formErrors,
     })
   }
 

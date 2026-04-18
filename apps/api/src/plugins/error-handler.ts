@@ -9,11 +9,13 @@ export function registerErrorHandler(app: FastifyInstance) {
     const appError = error as AppError
 
     if (error instanceof ZodError) {
+      const flat = error.flatten()
       return reply.status(400).send({
         statusCode: 400,
         error: 'Bad Request',
         message: 'Validation error',
-        issues: error.flatten().fieldErrors,
+        issues: flat.fieldErrors,
+        formErrors: flat.formErrors,
       })
     }
 
