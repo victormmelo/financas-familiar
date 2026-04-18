@@ -269,6 +269,7 @@ export async function payInvoice(
         accountId: input.accountId,
         createdById: userId,
         type: 'EXPENSE',
+        nature: 'NORMAL',
         status: 'CONFIRMED',
         amount: amountToPay,
         description: `Pagamento fatura ${card.name} ${String(invoice.referenceMonth).padStart(2, '0')}/${invoice.referenceYear}`,

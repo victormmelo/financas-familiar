@@ -8,6 +8,8 @@ export interface Budget {
   referenceMonth: number
   referenceYear: number
   limitAmount: number
+  grossExpense?: number
+  expenseReimbursements?: number
   spentAmount: number
   remainingAmount: number
   usagePercent: number

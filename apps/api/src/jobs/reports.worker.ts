@@ -18,38 +18,111 @@ async function generateDRE(familyId: string, params: ReportJobData['params']) {
       recognition: 'OPERATIONAL',
       date: { gte: start, lte: end },
     },
-    include: { category: { select: { id: true, name: true, type: true } } },
+    include: {
+      category: { select: { id: true, name: true, type: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          categoryId: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
+    },
   })
 
-  const byCategory: Record<string, { name: string; type: string; total: number }> = {}
+  const expenseByCategory = new Map<string, { categoryId: string | null; name: string; grossExpense: number; expenseReimbursements: number; netExpense: number }>()
+  const incomeByCategory = new Map<string, { categoryId: string | null; name: string; grossIncome: number; incomeReversals: number; netIncome: number }>()
 
-  for (const tx of transactions) {
-    const key = tx.categoryId ?? '__sem-categoria__'
-    if (!byCategory[key]) {
-      byCategory[key] = {
-        name: tx.category?.name ?? 'Sem categoria',
-        type: tx.type,
-        total: 0,
-      }
+  const expenseBucket = (categoryId: string | null, name: string) => {
+    const key = categoryId ?? '__sem-categoria__'
+    const current = expenseByCategory.get(key) ?? {
+      categoryId,
+      name,
+      grossExpense: 0,
+      expenseReimbursements: 0,
+      netExpense: 0,
     }
-    byCategory[key].total += tx.type === 'INCOME'
-      ? tx.amount.toNumber()
-      : -tx.amount.toNumber()
+    expenseByCategory.set(key, current)
+    return current
   }
 
-  const totalIncome = transactions
-    .filter((t: (typeof transactions)[number]) => t.type === 'INCOME')
-    .reduce((sum: number, t: (typeof transactions)[number]) => sum + t.amount.toNumber(), 0)
-  const totalExpense = transactions
-    .filter((t: (typeof transactions)[number]) => t.type === 'EXPENSE')
-    .reduce((sum: number, t: (typeof transactions)[number]) => sum + t.amount.toNumber(), 0)
+  const incomeBucket = (categoryId: string | null, name: string) => {
+    const key = categoryId ?? '__sem-categoria__'
+    const current = incomeByCategory.get(key) ?? {
+      categoryId,
+      name,
+      grossIncome: 0,
+      incomeReversals: 0,
+      netIncome: 0,
+    }
+    incomeByCategory.set(key, current)
+    return current
+  }
+
+  for (const tx of transactions) {
+    const amount = tx.amount.toNumber()
+
+    if (tx.nature === 'NORMAL' && tx.type === 'EXPENSE') {
+      const bucket = expenseBucket(tx.categoryId, tx.category?.name ?? 'Sem categoria')
+      bucket.grossExpense += amount
+      continue
+    }
+
+    if (tx.nature === 'NORMAL' && tx.type === 'INCOME') {
+      const bucket = incomeBucket(tx.categoryId, tx.category?.name ?? 'Sem categoria')
+      bucket.grossIncome += amount
+      continue
+    }
+
+    if (tx.nature === 'REIMBURSEMENT' && tx.type === 'INCOME' && tx.linkedTransaction?.type === 'EXPENSE') {
+      const bucket = expenseBucket(
+        tx.linkedTransaction.categoryId,
+        tx.linkedTransaction.category?.name ?? 'Sem categoria',
+      )
+      bucket.expenseReimbursements += amount
+      continue
+    }
+
+    if (tx.nature === 'REIMBURSEMENT' && tx.type === 'EXPENSE' && tx.linkedTransaction?.type === 'INCOME') {
+      const bucket = incomeBucket(
+        tx.linkedTransaction.categoryId,
+        tx.linkedTransaction.category?.name ?? 'Sem categoria',
+      )
+      bucket.incomeReversals += amount
+    }
+  }
+
+  const expenseCategories = Array.from(expenseByCategory.values()).map((row) => ({
+    ...row,
+    netExpense: row.grossExpense - row.expenseReimbursements,
+  }))
+  const incomeCategories = Array.from(incomeByCategory.values()).map((row) => ({
+    ...row,
+    netIncome: row.grossIncome - row.incomeReversals,
+  }))
+
+  const grossIncome = incomeCategories.reduce((sum, row) => sum + row.grossIncome, 0)
+  const incomeReversals = incomeCategories.reduce((sum, row) => sum + row.incomeReversals, 0)
+  const grossExpense = expenseCategories.reduce((sum, row) => sum + row.grossExpense, 0)
+  const expenseReimbursements = expenseCategories.reduce((sum, row) => sum + row.expenseReimbursements, 0)
+  const netIncome = grossIncome - incomeReversals
+  const netExpense = grossExpense - expenseReimbursements
 
   return {
     period: { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) },
-    totalIncome,
-    totalExpense,
-    netResult: totalIncome - totalExpense,
-    categories: Object.values(byCategory),
+    totalIncome: grossIncome,
+    totalExpense: grossExpense,
+    grossIncome,
+    grossExpense,
+    incomeReversals,
+    expenseReimbursements,
+    netIncome,
+    netExpense,
+    netResult: netIncome - netExpense,
+    incomeCategories: incomeCategories.sort((a, b) => b.grossIncome - a.grossIncome),
+    expenseCategories: expenseCategories.sort((a, b) => b.grossExpense - a.grossExpense),
   }
 }
 
@@ -62,24 +135,79 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
       const start = new Date(year, month - 1, 1)
       const end = new Date(year, month, 1)
 
-      const result = await prisma.transaction.groupBy({
-        by: ['type'],
-        where: {
-          familyId,
-          status: 'CONFIRMED',
-          liquidated: true,
-          recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
-          date: { gte: start, lt: end },
-        },
-        _sum: { amount: true },
-      })
+      const baseWhere = {
+        familyId,
+        status: 'CONFIRMED' as const,
+        liquidated: true,
+        recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] as const },
+        date: { gte: start, lt: end },
+      }
 
-      const income =
-        result.find((r: (typeof result)[number]) => r.type === 'INCOME')?._sum.amount?.toNumber() ?? 0
-      const expense =
-        result.find((r: (typeof result)[number]) => r.type === 'EXPENSE')?._sum.amount?.toNumber() ?? 0
+      const [grossIncomeAgg, grossExpenseAgg, expenseReimbursementsAgg, incomeReversalsAgg] = await Promise.all([
+        prisma.transaction.aggregate({
+          where: {
+            ...baseWhere,
+            type: 'INCOME',
+            nature: 'NORMAL',
+            recognition: 'OPERATIONAL',
+          },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            ...baseWhere,
+            type: 'EXPENSE',
+            nature: 'NORMAL',
+            recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+          },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            ...baseWhere,
+            type: 'INCOME',
+            nature: 'REIMBURSEMENT',
+            linkedTransaction: {
+              type: 'EXPENSE',
+              nature: 'NORMAL',
+            },
+          },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: {
+            ...baseWhere,
+            type: 'EXPENSE',
+            nature: 'REIMBURSEMENT',
+            linkedTransaction: {
+              type: 'INCOME',
+              nature: 'NORMAL',
+            },
+          },
+          _sum: { amount: true },
+        }),
+      ])
 
-      return { month, year, income, expense, net: income - expense }
+      const grossIncome = grossIncomeAgg._sum.amount?.toNumber() ?? 0
+      const grossExpense = grossExpenseAgg._sum.amount?.toNumber() ?? 0
+      const expenseReimbursements = expenseReimbursementsAgg._sum.amount?.toNumber() ?? 0
+      const incomeReversals = incomeReversalsAgg._sum.amount?.toNumber() ?? 0
+      const netIncome = grossIncome - incomeReversals
+      const netExpense = grossExpense - expenseReimbursements
+
+      return {
+        month,
+        year,
+        grossIncome,
+        grossExpense,
+        expenseReimbursements,
+        incomeReversals,
+        netIncome,
+        netExpense,
+        cashIn: grossIncome + expenseReimbursements,
+        cashOut: grossExpense + incomeReversals,
+        net: netIncome - netExpense,
+      }
     }),
   )
 

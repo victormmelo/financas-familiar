@@ -5,6 +5,7 @@ import {
   bulkConfirmSchema,
   bulkSetCategorySchema,
   listTransactionsSchema,
+  dashboardSummarySchema,
 } from './transactions.schema.js'
 import * as transactionsService from './transactions.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
@@ -17,6 +18,19 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload
     const query = listTransactionsSchema.parse(request.query)
     return transactionsService.listTransactions(user.familyId, query)
+  })
+
+  // GET /transactions/dashboard-summary
+  fastify.get('/dashboard-summary', async (request) => {
+    const user = request.user as TokenPayload
+    const query = dashboardSummarySchema.parse(request.query)
+    return transactionsService.getDashboardSummary(user.familyId, query)
+  })
+
+  // GET /transactions/:id/reimbursement-context
+  fastify.get<{ Params: { id: string } }>('/:id/reimbursement-context', async (request) => {
+    const user = request.user as TokenPayload
+    return transactionsService.getReimbursementContext(user.familyId, request.params.id)
   })
 
   // GET /transactions/recurring — lista templates recorrentes

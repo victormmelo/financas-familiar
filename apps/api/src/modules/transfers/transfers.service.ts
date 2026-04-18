@@ -35,7 +35,7 @@ export async function listTransfers(familyId: string, query: ListTransfersInput)
     prisma.transfer.count({ where }),
   ])
 
-  const data = rows.map((t) => ({
+  const data = rows.map((t: (typeof rows)[number]) => ({
     ...t,
     amount: Number(t.amount),
   }))
@@ -83,6 +83,7 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
           accountId: input.fromAccountId,
           createdById: userId,
           type: 'EXPENSE',
+          nature: 'TRANSFER',
           status: 'CONFIRMED',
           amount: input.amount,
           description,
@@ -98,6 +99,7 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
           accountId: input.toAccountId,
           createdById: userId,
           type: 'INCOME',
+          nature: 'TRANSFER',
           status: 'CONFIRMED',
           amount: input.amount,
           description,

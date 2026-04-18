@@ -3,6 +3,7 @@
 export type Role = 'ADMIN' | 'MEMBER'
 export type AccountType = 'CHECKING' | 'SAVINGS' | 'JOINT' | 'INVESTMENT' | 'CASH'
 export type TransactionType = 'INCOME' | 'EXPENSE'
+export type TransactionNature = 'NORMAL' | 'REIMBURSEMENT' | 'TRANSFER' | 'ADJUSTMENT' | 'REVERSAL'
 
 export type TransactionRecognition = 'OPERATIONAL' | 'TRANSFER_LEG' | 'INVOICE_PAYMENT'
 export type TransactionStatus = 'DRAFT' | 'CONFIRMED' | 'DELETED'
@@ -197,6 +198,8 @@ export interface Transaction {
   categoryId: string | null
   createdById: string
   type: TransactionType
+  nature: TransactionNature
+  linkedTransactionId: string | null
   status: TransactionStatus
   amount: number
   description: string
@@ -228,6 +231,19 @@ export interface Transaction {
     fromAccount?: { id: string; name: string }
     toAccount?: { id: string; name: string }
   } | null
+  linkedTransaction?: {
+    id: string
+    type: TransactionType
+    nature: TransactionNature
+    status: TransactionStatus
+    amount: number
+    categoryId: string | null
+    description: string
+    category?: { id: string; name: string; type: CategoryType } | null
+  } | null
+  reimbursedAmount?: number
+  remainingReimbursableAmount?: number
+  netAmount?: number
   creditCardInvoice?: {
     id: string
     referenceMonth: number
@@ -243,6 +259,9 @@ export interface CreateTransactionInput {
   accountId?: string
   categoryId?: string
   type: TransactionType
+  nature?: TransactionNature
+  linkedTransactionId?: string
+  reimbursementOverflowReason?: string
   amount: number
   description: string
   notes?: string
@@ -269,6 +288,9 @@ export type RecurringFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
 export interface UpdateTransactionInput {
   accountId?: string
   categoryId?: string
+  nature?: TransactionNature
+  linkedTransactionId?: string | null
+  reimbursementOverflowReason?: string
   amount?: number
   description?: string
   notes?: string
@@ -279,6 +301,8 @@ export interface UpdateTransactionInput {
 export interface TransactionFilters {
   status?: TransactionStatus
   type?: TransactionType
+  nature?: TransactionNature
+  linkedTransactionId?: string
   accountId?: string
   categoryId?: string
   startDate?: string

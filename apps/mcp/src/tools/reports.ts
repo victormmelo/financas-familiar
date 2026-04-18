@@ -78,11 +78,12 @@ export function registerReportHandlers(
 
     const dateFilter = { gte: parsePlainDate(startDate), lte: parsePlainDate(endDate) }
 
-    const [income, expense, accounts] = await Promise.all([
+    const [grossIncomeAgg, grossExpenseAgg, expenseReimbursementsAgg, incomeReversalsAgg, accounts] = await Promise.all([
       prisma.transaction.aggregate({
         where: {
           familyId,
           type: 'INCOME',
+          nature: 'NORMAL',
           status: 'CONFIRMED',
           recognition: 'OPERATIONAL',
           date: dateFilter,
@@ -93,9 +94,40 @@ export function registerReportHandlers(
         where: {
           familyId,
           type: 'EXPENSE',
+          nature: 'NORMAL',
           status: 'CONFIRMED',
           recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
           date: dateFilter,
+        },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: {
+          familyId,
+          type: 'INCOME',
+          nature: 'REIMBURSEMENT',
+          status: 'CONFIRMED',
+          recognition: 'OPERATIONAL',
+          date: dateFilter,
+          linkedTransaction: {
+            type: 'EXPENSE',
+            nature: 'NORMAL',
+          },
+        },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: {
+          familyId,
+          type: 'EXPENSE',
+          nature: 'REIMBURSEMENT',
+          status: 'CONFIRMED',
+          recognition: 'OPERATIONAL',
+          date: dateFilter,
+          linkedTransaction: {
+            type: 'INCOME',
+            nature: 'NORMAL',
+          },
         },
         _sum: { amount: true },
       }),
@@ -105,8 +137,12 @@ export function registerReportHandlers(
       }),
     ])
 
-    const totalIncome = Number(income._sum.amount ?? 0)
-    const totalExpense = Number(expense._sum.amount ?? 0)
+    const grossIncome = Number(grossIncomeAgg._sum.amount ?? 0)
+    const grossExpense = Number(grossExpenseAgg._sum.amount ?? 0)
+    const expenseReimbursements = Number(expenseReimbursementsAgg._sum.amount ?? 0)
+    const incomeReversals = Number(incomeReversalsAgg._sum.amount ?? 0)
+    const totalIncome = grossIncome - incomeReversals
+    const totalExpense = grossExpense - expenseReimbursements
 
     // Saldos das contas (sem filtro de período — saldo atual real)
     const accountBalances = await Promise.all(
@@ -131,6 +167,10 @@ export function registerReportHandlers(
 
     return {
       period: { startDate, endDate },
+        grossIncome,
+        grossExpense,
+        expenseReimbursements,
+        incomeReversals,
       totalIncome,
       totalExpense,
       netBalance: totalIncome - totalExpense,
@@ -147,56 +187,121 @@ export function registerReportHandlers(
 
     const dateFilter = { gte: parsePlainDate(startDate), lte: parsePlainDate(endDate) }
 
-    const transactions = await prisma.transaction.findMany({
-      where: {
-        familyId,
-        type: 'EXPENSE',
-        status: 'CONFIRMED',
-        recognition: 'OPERATIONAL',
-        date: dateFilter,
-      },
-      select: { amount: true, categoryId: true, category: { select: { id: true, name: true } } },
-    })
+    const [expenseTransactions, reimbursements] = await Promise.all([
+      prisma.transaction.findMany({
+        where: {
+          familyId,
+          type: 'EXPENSE',
+          nature: 'NORMAL',
+          status: 'CONFIRMED',
+          recognition: 'OPERATIONAL',
+          date: dateFilter,
+        },
+        select: { amount: true, categoryId: true, category: { select: { id: true, name: true } } },
+      }),
+      prisma.transaction.findMany({
+        where: {
+          familyId,
+          type: 'INCOME',
+          nature: 'REIMBURSEMENT',
+          status: 'CONFIRMED',
+          recognition: 'OPERATIONAL',
+          date: dateFilter,
+          linkedTransaction: {
+            type: 'EXPENSE',
+            nature: 'NORMAL',
+            status: { not: 'DELETED' },
+          },
+        },
+        select: {
+          amount: true,
+          linkedTransaction: {
+            select: { categoryId: true, category: { select: { id: true, name: true } } },
+          },
+        },
+      }),
+    ])
 
-    const byCategory = new Map<string, { name: string; total: number }>()
+    const byCategory = new Map<string, { name: string; grossExpense: number; reimbursements: number; netExpense: number }>()
     let uncategorizedTotal = 0
+    let uncategorizedReimbursements = 0
 
-    for (const t of transactions) {
+    for (const t of expenseTransactions) {
       const amount = Number(t.amount)
       if (t.categoryId && t.category) {
         const existing = byCategory.get(t.categoryId)
         if (existing) {
-          existing.total += amount
+          existing.grossExpense += amount
         } else {
-          byCategory.set(t.categoryId, { name: t.category.name, total: amount })
+          byCategory.set(t.categoryId, { name: t.category.name, grossExpense: amount, reimbursements: 0, netExpense: 0 })
         }
       } else {
         uncategorizedTotal += amount
       }
     }
 
-    const totalExpense = transactions.reduce((sum: number, t: (typeof transactions)[number]) => sum + Number(t.amount), 0)
+    for (const tx of reimbursements) {
+      const amount = Number(tx.amount)
+      const categoryId = tx.linkedTransaction?.categoryId ?? null
+      const categoryName = tx.linkedTransaction?.category?.name ?? 'Sem categoria'
+      if (categoryId) {
+        const existing = byCategory.get(categoryId)
+        if (existing) {
+          existing.reimbursements += amount
+        } else {
+          byCategory.set(categoryId, { name: categoryName, grossExpense: 0, reimbursements: amount, netExpense: 0 })
+        }
+      } else {
+        uncategorizedReimbursements += amount
+      }
+    }
+
+    const totalGrossExpense = expenseTransactions.reduce(
+      (sum: number, t: (typeof expenseTransactions)[number]) => sum + Number(t.amount),
+      0,
+    )
+    const totalReimbursements = reimbursements.reduce(
+      (sum: number, t: (typeof reimbursements)[number]) => sum + Number(t.amount),
+      0,
+    )
+    const totalExpense = totalGrossExpense - totalReimbursements
 
     const categories = Array.from(byCategory.entries())
-      .map(([id, { name, total }]) => ({
+      .map(([id, { name, grossExpense, reimbursements }]) => {
+        const netExpense = grossExpense - reimbursements
+        return {
         id,
         name,
-        total,
-        percentOfTotal: totalExpense > 0 ? Math.round((total / totalExpense) * 100) : 0,
-      }))
-      .sort((a, b) => b.total - a.total)
+          grossExpense,
+          reimbursements,
+          netExpense,
+          total: netExpense,
+          percentOfTotal: totalExpense > 0 ? Math.round((netExpense / totalExpense) * 100) : 0,
+        }
+      })
+      .sort((a, b) => b.netExpense - a.netExpense)
 
-    if (uncategorizedTotal > 0) {
+    const uncategorizedNet = uncategorizedTotal - uncategorizedReimbursements
+    if (uncategorizedTotal > 0 || uncategorizedReimbursements > 0) {
       categories.push({
         id: 'uncategorized',
         name: 'Sem categoria',
-        total: uncategorizedTotal,
+        grossExpense: uncategorizedTotal,
+        reimbursements: uncategorizedReimbursements,
+        netExpense: uncategorizedNet,
+        total: uncategorizedNet,
         percentOfTotal:
-          totalExpense > 0 ? Math.round((uncategorizedTotal / totalExpense) * 100) : 0,
+          totalExpense > 0 ? Math.round((uncategorizedNet / totalExpense) * 100) : 0,
       })
     }
 
-    return { period: { startDate, endDate }, totalExpense, categories }
+    return {
+      period: { startDate, endDate },
+      totalGrossExpense,
+      totalReimbursements,
+      totalExpense,
+      categories,
+    }
   })
 
   toolHandlerMap.set('get_cashflow', async (args) => {
@@ -221,11 +326,12 @@ export function registerReportHandlers(
         const to = new Date(year, month, 0)
         const dateFilter = { gte: from, lte: to }
 
-        const [income, expense] = await Promise.all([
+        const [grossIncomeAgg, grossExpenseAgg, expenseReimbursementsAgg, incomeReversalsAgg] = await Promise.all([
           prisma.transaction.aggregate({
             where: {
               familyId,
               type: 'INCOME',
+              nature: 'NORMAL',
               status: 'CONFIRMED',
               liquidated: true,
               recognition: 'OPERATIONAL',
@@ -237,6 +343,7 @@ export function registerReportHandlers(
             where: {
               familyId,
               type: 'EXPENSE',
+              nature: 'NORMAL',
               status: 'CONFIRMED',
               liquidated: true,
               recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
@@ -244,15 +351,55 @@ export function registerReportHandlers(
             },
             _sum: { amount: true },
           }),
+          prisma.transaction.aggregate({
+            where: {
+              familyId,
+              type: 'INCOME',
+              nature: 'REIMBURSEMENT',
+              status: 'CONFIRMED',
+              liquidated: true,
+              recognition: 'OPERATIONAL',
+              date: dateFilter,
+              linkedTransaction: {
+                type: 'EXPENSE',
+                nature: 'NORMAL',
+              },
+            },
+            _sum: { amount: true },
+          }),
+          prisma.transaction.aggregate({
+            where: {
+              familyId,
+              type: 'EXPENSE',
+              nature: 'REIMBURSEMENT',
+              status: 'CONFIRMED',
+              liquidated: true,
+              recognition: 'OPERATIONAL',
+              date: dateFilter,
+              linkedTransaction: {
+                type: 'INCOME',
+                nature: 'NORMAL',
+              },
+            },
+            _sum: { amount: true },
+          }),
         ])
 
-        const totalIncome = Number(income._sum.amount ?? 0)
-        const totalExpense = Number(expense._sum.amount ?? 0)
+        const grossIncome = Number(grossIncomeAgg._sum.amount ?? 0)
+        const grossExpense = Number(grossExpenseAgg._sum.amount ?? 0)
+        const expenseReimbursements = Number(expenseReimbursementsAgg._sum.amount ?? 0)
+        const incomeReversals = Number(incomeReversalsAgg._sum.amount ?? 0)
+        const totalIncome = grossIncome - incomeReversals
+        const totalExpense = grossExpense - expenseReimbursements
 
         return {
           year,
           month,
           label: `${String(month).padStart(2, '0')}/${year}`,
+          grossIncome,
+          grossExpense,
+          expenseReimbursements,
+          incomeReversals,
           totalIncome,
           totalExpense,
           netBalance: totalIncome - totalExpense,
