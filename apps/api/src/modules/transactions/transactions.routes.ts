@@ -6,6 +6,7 @@ import {
   bulkSetCategorySchema,
   listTransactionsSchema,
   dashboardSummarySchema,
+  expenseCategorySummarySchema,
 } from './transactions.schema.js'
 import * as transactionsService from './transactions.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
@@ -25,6 +26,13 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
     const user = request.user as TokenPayload
     const query = dashboardSummarySchema.parse(request.query)
     return transactionsService.getDashboardSummary(user.familyId, query)
+  })
+
+  // GET /transactions/expense-category-summary
+  fastify.get('/expense-category-summary', async (request) => {
+    const user = request.user as TokenPayload
+    const query = expenseCategorySummarySchema.parse(request.query)
+    return transactionsService.getExpenseCategorySummary(user.familyId, query.startDate, query.endDate)
   })
 
   // GET /transactions/:id/reimbursement-context

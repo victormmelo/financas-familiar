@@ -28,31 +28,21 @@ import {
 } from '@/lib/utils'
 import { useMediaQuery } from '@/lib/use-media-query'
 import { useAuthStore } from '@/stores/auth.store'
-import type { TransactionRecognition } from '@financas/shared-types'
 import DashboardRouteLoading from './loading'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
 
 type DashboardSummary = {
-  grossIncome: number
-  grossExpense: number
-  expenseReimbursements: number
-  incomeReversals: number
   netIncome: number
   netExpense: number
   netResult: number
-  cashIn: number
-  cashOut: number
 }
 
-/** Receitas/despesas do mês ignoram pernas de transferência entre contas. */
-function countsForMonthIncomeExpenseTotals(t: {
-  recognition?: TransactionRecognition | null
-  transferId?: string | null
-}): boolean {
-  if (t.recognition === 'TRANSFER_LEG') return false
-  if (t.transferId) return false
-  return true
+type ExpenseCategorySummaryResponse = {
+  categories: Array<{
+    name: string
+    netExpense: number
+  }>
 }
 
 /** Alinhado a globals.css — card / border / foreground */
@@ -136,12 +126,25 @@ function DashboardContent() {
   })
   const { data: budgets } = useBudgets({ referenceMonth: month, referenceYear: year, enabled: authReady })
   const { data: goals } = useGoals({ enabled: authReady })
+  const dateRangeQs = `startDate=${ym}-01&endDate=${ym}-${String(lastDay).padStart(2, '0')}`
+
   const { data: summary } = useQuery({
-    queryKey: ['transactions', 'dashboard-summary', year, month],
+    queryKey: ['transactions', 'dashboard-summary', year, month, 'competence'],
+    queryFn: () => api.get<DashboardSummary>(`/transactions/dashboard-summary?${dateRangeQs}`),
+    enabled: authReady,
+  })
+
+  const { data: summaryLiquidated } = useQuery({
+    queryKey: ['transactions', 'dashboard-summary', year, month, 'liquidated'],
     queryFn: () =>
-      api.get<DashboardSummary>(
-        `/transactions/dashboard-summary?startDate=${ym}-01&endDate=${ym}-${String(lastDay).padStart(2, '0')}`,
-      ),
+      api.get<DashboardSummary>(`/transactions/dashboard-summary?${dateRangeQs}&liquidated=true`),
+    enabled: authReady,
+  })
+
+  const { data: expenseCategorySummary } = useQuery({
+    queryKey: ['transactions', 'expense-category-summary', year, month],
+    queryFn: () =>
+      api.get<ExpenseCategorySummaryResponse>(`/transactions/expense-category-summary?${dateRangeQs}`),
     enabled: authReady,
   })
 
@@ -175,53 +178,19 @@ function DashboardContent() {
 
   const transactions = transactionsData?.data ?? []
 
-  const monthIncome = useMemo(
-    () =>
-      transactions
-        .filter((t) => t.type === 'INCOME' && countsForMonthIncomeExpenseTotals(t))
-        .reduce((s, t) => s + Number(t.amount), 0),
-    [transactions],
-  )
-  const monthExpense = useMemo(
-    () =>
-      transactions
-        .filter((t) => t.type === 'EXPENSE' && countsForMonthIncomeExpenseTotals(t))
-        .reduce((s, t) => s + Number(t.amount), 0),
-    [transactions],
-  )
-
-  const monthIncomeLiquidated = useMemo(
-    () =>
-      transactions
-        .filter(
-          (t) => t.type === 'INCOME' && t.liquidated === true && countsForMonthIncomeExpenseTotals(t),
-        )
-        .reduce((s, t) => s + Number(t.amount), 0),
-    [transactions],
-  )
-  const monthExpenseLiquidated = useMemo(
-    () =>
-      transactions
-        .filter(
-          (t) => t.type === 'EXPENSE' && t.liquidated === true && countsForMonthIncomeExpenseTotals(t),
-        )
-        .reduce((s, t) => s + Number(t.amount), 0),
-    [transactions],
-  )
+  const monthIncome = summary?.netIncome ?? 0
+  const monthExpense = summary?.netExpense ?? 0
+  const monthIncomeLiquidated = summaryLiquidated?.netIncome ?? 0
+  const monthExpenseLiquidated = summaryLiquidated?.netExpense ?? 0
 
   const categoryData = useMemo(() => {
-    const map: Record<string, number> = {}
-    transactions
-      .filter((t) => t.type === 'EXPENSE' && t.category && countsForMonthIncomeExpenseTotals(t))
-      .forEach((t) => {
-        const name = t.category!.name
-        map[name] = (map[name] ?? 0) + Number(t.amount)
-      })
-    return Object.entries(map)
-      .map(([name, value]) => ({ name, value }))
+    const rows = expenseCategorySummary?.categories ?? []
+    return rows
+      .map((c) => ({ name: c.name, value: Math.max(c.netExpense, 0) }))
+      .filter((d) => d.value > 0)
       .sort((a, b) => b.value - a.value)
       .slice(0, 6)
-  }, [transactions])
+  }, [expenseCategorySummary])
 
   const categoryTotal = useMemo(
     () => categoryData.reduce((sum, d) => sum + d.value, 0),
@@ -230,8 +199,8 @@ function DashboardContent() {
 
   const budgetItems = budgets?.slice(0, 5) ?? []
   const topGoals = goals?.slice(0, 3) ?? []
-  const monthBalance = summary?.netResult ?? monthIncome - monthExpense
-  const monthBalanceLiquidated = summary?.netResult ?? monthIncomeLiquidated - monthExpenseLiquidated
+  const monthBalance = summary?.netResult ?? 0
+  const monthBalanceLiquidated = summaryLiquidated?.netResult ?? 0
 
   const monthTitle = getMonthName(month)
   const periodLabel = formatMonthYearLabel(year, month)
@@ -292,35 +261,6 @@ function DashboardContent() {
           projectedValueClass={monthBalance >= 0 ? 'text-emerald-400/75' : 'text-rose-400/75'}
         />
       </div>
-
-      {summary ? (
-        <Card>
-          <CardContent className="grid grid-cols-1 gap-3 p-4 text-sm md:grid-cols-4">
-            <div>
-              <p className="text-xs text-muted-foreground">Receita bruta</p>
-              <p className="font-mono tabular-nums text-emerald-400">{formatCurrency(summary.grossIncome)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Despesa bruta</p>
-              <p className="font-mono tabular-nums text-rose-400">{formatCurrency(summary.grossExpense)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Compensações</p>
-              <p className="font-mono tabular-nums text-foreground">
-                +{formatCurrency(summary.expenseReimbursements)} / -{formatCurrency(summary.incomeReversals)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Resultado líquido</p>
-              <p
-                className={`font-mono tabular-nums ${summary.netResult >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
-              >
-                {formatCurrency(summary.netResult)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>

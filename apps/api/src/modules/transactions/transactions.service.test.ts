@@ -47,6 +47,7 @@ import {
   emptyTransactionTrash,
   getReimbursementContext,
   getDashboardSummary,
+  getExpenseCategorySummary,
 } from './transactions.service.js'
 
 const mockTransaction = {
@@ -101,6 +102,7 @@ beforeEach(() => {
   vi.mocked(prisma.$transaction).mockImplementation(async (fn: (tx: typeof prisma) => unknown) => {
     await fn(prisma)
   })
+  vi.mocked(prisma.transaction.findMany).mockResolvedValue([] as never)
   vi.mocked(prisma.transaction.groupBy).mockResolvedValue([] as never)
   vi.mocked(prisma.transaction.aggregate).mockResolvedValue({ _sum: { amount: new Decimal(0) } } as never)
   vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
@@ -1063,21 +1065,58 @@ describe('getDashboardSummary', () => {
   })
 })
 
+describe('getExpenseCategorySummary', () => {
+  it('deve calcular despesa líquida por categoria (bruto menos reembolsos)', async () => {
+    vi.mocked(prisma.transaction.findMany)
+      .mockResolvedValueOnce(
+        [
+          {
+            amount: new Decimal(200),
+            categoryId: 'cat-1',
+            category: { id: 'cat-1', name: 'Alimentação', type: 'EXPENSE' },
+          },
+        ] as never,
+      )
+      .mockResolvedValueOnce(
+        [
+          {
+            amount: new Decimal(50),
+            linkedTransaction: {
+              categoryId: 'cat-1',
+              category: { id: 'cat-1', name: 'Alimentação', type: 'EXPENSE' },
+            },
+          },
+        ] as never,
+      )
+
+    const result = await getExpenseCategorySummary('family-1', '2026-04-01', '2026-04-30')
+
+    expect(result.totalGrossExpense).toBe(200)
+    expect(result.totalExpenseReimbursements).toBe(50)
+    expect(result.totalNetExpense).toBe(150)
+    const row = result.categories.find((c) => c.categoryId === 'cat-1')
+    expect(row?.netExpense).toBe(150)
+  })
+})
+
 describe('listTransactions reimbursements', () => {
   it('deve retornar métricas de reembolso para transação original', async () => {
-    vi.mocked(prisma.transaction.findMany).mockResolvedValue([
-      {
-        ...mockTransaction,
-        id: 'tx-orig',
-        amount: new Decimal(250),
-        status: 'CONFIRMED',
-        nature: 'NORMAL',
-      },
-    ] as never)
+    vi.mocked(prisma.transaction.findMany)
+      .mockResolvedValueOnce(
+        [
+          {
+            ...mockTransaction,
+            id: 'tx-orig',
+            amount: new Decimal(250),
+            status: 'CONFIRMED',
+            nature: 'NORMAL',
+          },
+        ] as never,
+      )
+      .mockResolvedValueOnce(
+        [{ linkedTransactionId: 'tx-orig', amount: new Decimal(100) }] as never,
+      )
     vi.mocked(prisma.transaction.count).mockResolvedValue(1)
-    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([
-      { linkedTransactionId: 'tx-orig', _sum: { amount: new Decimal(100) } },
-    ] as never)
 
     const result = await listTransactions('family-1', { page: 1, limit: 20 })
 

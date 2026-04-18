@@ -112,8 +112,9 @@ async function generateDRE(familyId: string, params: ReportJobData['params']) {
 
   return {
     period: { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) },
-    totalIncome: grossIncome,
-    totalExpense: grossExpense,
+    /** Totais “de relatório”: receita e despesa líquidas (após reembolsos). */
+    totalIncome: netIncome,
+    totalExpense: netExpense,
     grossIncome,
     grossExpense,
     incomeReversals,
@@ -135,11 +136,13 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
       const start = new Date(year, month - 1, 1)
       const end = new Date(year, month, 1)
 
+      const recognitionInCashflow = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
+
       const baseWhere = {
         familyId,
         status: 'CONFIRMED' as const,
         liquidated: true,
-        recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] as const },
+        recognition: { in: recognitionInCashflow },
         date: { gte: start, lt: end },
       }
 
@@ -190,8 +193,8 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
 
       const grossIncome = grossIncomeAgg._sum.amount?.toNumber() ?? 0
       const grossExpense = grossExpenseAgg._sum.amount?.toNumber() ?? 0
-      const expenseReimbursements = expenseReimbursementsAgg._sum.amount?.toNumber() ?? 0
-      const incomeReversals = incomeReversalsAgg._sum.amount?.toNumber() ?? 0
+      const expenseReimbursements = expenseReimbursementsAgg._sum?.amount?.toNumber() ?? 0
+      const incomeReversals = incomeReversalsAgg._sum?.amount?.toNumber() ?? 0
       const netIncome = grossIncome - incomeReversals
       const netExpense = grossExpense - expenseReimbursements
 

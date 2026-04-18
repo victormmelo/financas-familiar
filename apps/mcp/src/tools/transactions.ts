@@ -25,22 +25,22 @@ async function appendReimbursementMetrics<
 ): Promise<Array<T & { reimbursedAmount: number; remainingReimbursableAmount: number; netAmount: number }>> {
   if (transactions.length === 0) return []
   const ids = transactions.map((tx) => tx.id)
-  const reimbursements = (await prisma.transaction.groupBy({
-    by: ['linkedTransactionId'],
+  const reimbursementRows = await prisma.transaction.findMany({
     where: {
       familyId,
       nature: 'REIMBURSEMENT',
       status: { not: 'DELETED' },
       linkedTransactionId: { in: ids },
     },
-    _sum: { amount: true },
-  })) as Array<{ linkedTransactionId: string | null; _sum: { amount: DecimalLike | null } }>
+    select: { linkedTransactionId: true, amount: true },
+  })
 
-  const reimbursedById = new Map(
-    reimbursements
-      .filter((row) => row.linkedTransactionId !== null)
-      .map((row) => [row.linkedTransactionId as string, decimalToNumber(row._sum.amount)]),
-  )
+  const reimbursedById = new Map<string, number>()
+  for (const row of reimbursementRows) {
+    const lid = row.linkedTransactionId
+    if (lid === null) continue
+    reimbursedById.set(lid, (reimbursedById.get(lid) ?? 0) + decimalToNumber(row.amount))
+  }
 
   return transactions.map((tx) => {
     const amount = decimalToNumber(tx.amount)

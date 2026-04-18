@@ -97,9 +97,15 @@ export const dashboardSummarySchema = z.object({
   liquidated: z.coerce.boolean().optional(),
 })
 
+export const expenseCategorySummarySchema = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+})
+
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>
 export type BulkConfirmInput = z.infer<typeof bulkConfirmSchema>
 export type BulkSetCategoryInput = z.infer<typeof bulkSetCategorySchema>
 export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>
 export type DashboardSummaryInput = z.infer<typeof dashboardSummarySchema>
+export type ExpenseCategorySummaryInput = z.infer<typeof expenseCategorySummarySchema>

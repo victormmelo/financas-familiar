@@ -477,6 +477,8 @@ export async function getExpenseCategorySummary(
         }
       : {}
 
+  const recognitionInExpense = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
+
   const [expenses, reimbursements] = await Promise.all([
     prisma.transaction.findMany({
       where: {
@@ -484,7 +486,7 @@ export async function getExpenseCategorySummary(
         type: 'EXPENSE',
         nature: 'NORMAL',
         status: 'CONFIRMED',
-        recognition: 'OPERATIONAL',
+        recognition: { in: recognitionInExpense },
         ...dateFilter,
       },
       select: {
@@ -499,7 +501,7 @@ export async function getExpenseCategorySummary(
         type: 'INCOME',
         nature: 'REIMBURSEMENT',
         status: 'CONFIRMED',
-        recognition: 'OPERATIONAL',
+        recognition: { in: recognitionInExpense },
         ...dateFilter,
         linkedTransaction: {
           type: 'EXPENSE',
