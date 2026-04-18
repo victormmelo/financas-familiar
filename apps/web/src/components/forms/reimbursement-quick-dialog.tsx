@@ -18,7 +18,7 @@ import {
 } from '@/hooks/use-transactions'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
-import { formatDateInput } from '@/lib/utils'
+import { formatDateInput, toPlainDateInputValue } from '@/lib/utils'
 import { normalizeReaisForApi } from '@financas/shared-types'
 
 const BRL_FORMATTER = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -110,7 +110,7 @@ export function ReimbursementQuickDialog({
         amount: reimbursement.amount,
         description: reimbursement.description,
         notes: reimbursement.notes ?? '',
-        date: reimbursement.date,
+        date: toPlainDateInputValue(reimbursement.date),
         reimbursementOverflowReason: '',
       })
       return

@@ -15,7 +15,7 @@ import { useCreateTransaction, useUpdateTransaction, type Transaction } from '@/
 import { useCreditCards } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
-import { formatDateInput } from '@/lib/utils'
+import { formatDateInput, toPlainDateInputValue } from '@/lib/utils'
 import {
   findCategoryById,
   findCategoryPathNames,
@@ -188,7 +188,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           amount: transaction.amount,
           description: transaction.description,
           notes: transaction.notes ?? '',
-          date: transaction.date,
+          date: toPlainDateInputValue(transaction.date),
           mode: 'simple',
           frequency: 'MONTHLY',
           liquidated: transaction.liquidated ?? false,
@@ -245,7 +245,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
         amount: transaction.amount,
         description: transaction.description,
         notes: transaction.notes ?? '',
-        date: transaction.date,
+        date: toPlainDateInputValue(transaction.date),
         mode: 'simple',
         frequency: 'MONTHLY',
         liquidated: transaction.liquidated ?? false,

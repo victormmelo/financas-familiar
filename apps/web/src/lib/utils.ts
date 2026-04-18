@@ -38,6 +38,15 @@ export function formatDateInput(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+/** Converte data da API (YYYY-MM-DD ou ISO 8601) para valor de `<input type="date">`. */
+export function toPlainDateInputValue(raw: string): string {
+  const s = raw.trim()
+  if (!s) return ''
+  if (PLAIN_DATE_RE.test(s)) return s
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
+  return m ? m[1] : ''
+}
+
 export function currentMonth() {
   const now = new Date()
   return { month: now.getMonth() + 1, year: now.getFullYear() }
