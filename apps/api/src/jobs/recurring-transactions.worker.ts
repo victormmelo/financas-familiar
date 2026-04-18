@@ -38,6 +38,8 @@ export async function generateOccurrences(fromDate: Date, toDate: Date) {
       rrule: true,
       source: true,
       creditCardId: true,
+      nature: true,
+      linkedTransactionId: true,
     },
   })
 
@@ -89,6 +91,8 @@ export async function generateOccurrences(fromDate: Date, toDate: Date) {
           categoryId: template.categoryId,
           createdById: template.createdById,
           type: template.type,
+          nature: template.nature,
+          linkedTransactionId: template.linkedTransactionId,
           status: 'DRAFT',
           amount: template.amount,
           description: template.description,

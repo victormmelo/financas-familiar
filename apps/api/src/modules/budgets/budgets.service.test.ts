@@ -50,14 +50,20 @@ beforeEach(() => {
 describe('listBudgets', () => {
   it('deve retornar orçamentos com campos de consumo calculados', async () => {
     vi.mocked(prisma.budget.findMany).mockResolvedValue([mockBudget])
-    vi.mocked(prisma.transaction.aggregate).mockResolvedValue({
-      _sum: { amount: new Decimal(200) },
-    } as never)
+    vi.mocked(prisma.transaction.aggregate)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(250) },
+      } as never)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(50) },
+      } as never)
 
     const budgets = await listBudgets('family-1', { referenceMonth: 4, referenceYear: 2026 })
 
     expect(budgets).toHaveLength(1)
     expect(budgets[0].spentAmount).toBe(200)
+    expect(budgets[0].grossExpense).toBe(250)
+    expect(budgets[0].expenseReimbursements).toBe(50)
     expect(budgets[0].limitAmount).toBe(500)
     expect(budgets[0].remainingAmount).toBe(300)
     expect(budgets[0].usagePercent).toBe(40)
@@ -66,9 +72,13 @@ describe('listBudgets', () => {
 
   it('deve indicar isOverBudget=true quando gasto supera limite', async () => {
     vi.mocked(prisma.budget.findMany).mockResolvedValue([mockBudget])
-    vi.mocked(prisma.transaction.aggregate).mockResolvedValue({
-      _sum: { amount: new Decimal(600) },
-    } as never)
+    vi.mocked(prisma.transaction.aggregate)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(700) },
+      } as never)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(100) },
+      } as never)
 
     const budgets = await listBudgets('family-1', { referenceMonth: 4, referenceYear: 2026 })
 
@@ -98,13 +108,19 @@ describe('listBudgets', () => {
 describe('getBudget', () => {
   it('deve retornar orçamento com detalhes calculados', async () => {
     vi.mocked(prisma.budget.findFirst).mockResolvedValue(mockBudget)
-    vi.mocked(prisma.transaction.aggregate).mockResolvedValue({
-      _sum: { amount: new Decimal(250) },
-    } as never)
+    vi.mocked(prisma.transaction.aggregate)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(300) },
+      } as never)
+      .mockResolvedValueOnce({
+        _sum: { amount: new Decimal(50) },
+      } as never)
 
     const budget = await getBudget('family-1', 'budget-1')
 
     expect(budget.spentAmount).toBe(250)
+    expect(budget.grossExpense).toBe(300)
+    expect(budget.expenseReimbursements).toBe(50)
     expect(budget.usagePercent).toBe(50)
   })
 

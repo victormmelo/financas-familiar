@@ -27,6 +27,14 @@ enum TransactionType {
   EXPENSE
 }
 
+enum TransactionNature {
+  NORMAL
+  REIMBURSEMENT
+  TRANSFER
+  ADJUSTMENT
+  REVERSAL
+}
+
 /** Classificação para DRE / fluxo de caixa agregado (pernas de transferência e pagamento de fatura). */
 enum TransactionRecognition {
   OPERATIONAL
@@ -228,6 +236,8 @@ model Transaction {
   description  String
   notes        String?
   date         DateTime          @db.Date
+  nature       TransactionNature @default(NORMAL)
+  linkedTransactionId String?    @map("linked_transaction_id")
   source       DraftSource       @default(MANUAL)
   transferId   String?           @map("transfer_id")
   creditCardId String?           @map("credit_card_id")
@@ -251,9 +261,13 @@ model Transaction {
   transfer   Transfer?   @relation(fields: [transferId], references: [id])
   creditCard CreditCard? @relation(fields: [creditCardId], references: [id])
   creditCardInvoice CreditCardInvoice? @relation(fields: [creditCardInvoiceId], references: [id])
+  linkedTransaction Transaction? @relation("TransactionCompensations", fields: [linkedTransactionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  compensationTransactions Transaction[] @relation("TransactionCompensations")
   draft      TransactionDraft?
   statementItems StatementItem[]
 
+  @@index([linkedTransactionId])
+  @@index([familyId, nature])
   @@index([creditCardInvoiceId])
   @@map("transactions")
 }

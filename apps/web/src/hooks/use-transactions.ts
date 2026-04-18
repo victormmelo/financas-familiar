@@ -1,10 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { TransactionRecognition } from '@financas/shared-types'
+import type { TransactionNature, TransactionRecognition } from '@financas/shared-types'
 
 export interface Transaction {
   id: string
   type: 'INCOME' | 'EXPENSE'
+  nature?: TransactionNature
+  linkedTransactionId?: string | null
   status: 'DRAFT' | 'CONFIRMED' | 'DELETED'
   amount: number
   description: string
@@ -27,6 +29,19 @@ export interface Transaction {
     fromAccount?: { id: string; name: string }
     toAccount?: { id: string; name: string }
   } | null
+  linkedTransaction?: {
+    id: string
+    type: 'INCOME' | 'EXPENSE'
+    nature: TransactionNature
+    status: 'DRAFT' | 'CONFIRMED' | 'DELETED'
+    amount: number
+    categoryId: string | null
+    description: string
+    category?: { id: string; name: string; type: 'INCOME' | 'EXPENSE' | 'BOTH' }
+  } | null
+  reimbursedAmount?: number
+  remainingReimbursableAmount?: number
+  netAmount?: number
   creditCardInvoice?: {
     id: string
     referenceMonth: number
@@ -51,6 +66,8 @@ export interface TransactionFilters {
   accountId?: string
   categoryId?: string
   type?: 'INCOME' | 'EXPENSE'
+  nature?: TransactionNature
+  linkedTransactionId?: string
   status?: 'DRAFT' | 'CONFIRMED' | 'DELETED'
   startDate?: string
   endDate?: string
@@ -120,6 +137,9 @@ export interface CreateTransactionPayload {
   accountId?: string
   categoryId?: string
   type: string
+  nature?: TransactionNature
+  linkedTransactionId?: string
+  reimbursementOverflowReason?: string
   amount: number
   description: string
   notes?: string
@@ -154,6 +174,9 @@ export function useUpdateTransaction() {
     }: {
       id: string
       categoryId?: string | null
+      nature?: TransactionNature
+      linkedTransactionId?: string | null
+      reimbursementOverflowReason?: string
       amount?: number
       description?: string
       notes?: string | null

@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { TrendingUp, TrendingDown, Wallet, CreditCard, Target, PieChart as PieIcon, Receipt } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { MonthNavigator } from '@/components/dashboard/month-navigator'
@@ -12,6 +13,7 @@ import { useAccounts } from '@/hooks/use-accounts'
 import { useTransactions } from '@/hooks/use-transactions'
 import { useBudgets } from '@/hooks/use-budgets'
 import { useGoals } from '@/hooks/use-goals'
+import { api } from '@/lib/api'
 import {
   formatCurrency,
   formatDate,
@@ -30,6 +32,18 @@ import type { TransactionRecognition } from '@financas/shared-types'
 import DashboardRouteLoading from './loading'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4']
+
+type DashboardSummary = {
+  grossIncome: number
+  grossExpense: number
+  expenseReimbursements: number
+  incomeReversals: number
+  netIncome: number
+  netExpense: number
+  netResult: number
+  cashIn: number
+  cashOut: number
+}
 
 /** Receitas/despesas do mês ignoram pernas de transferência entre contas. */
 function countsForMonthIncomeExpenseTotals(t: {
@@ -122,6 +136,14 @@ function DashboardContent() {
   })
   const { data: budgets } = useBudgets({ referenceMonth: month, referenceYear: year, enabled: authReady })
   const { data: goals } = useGoals({ enabled: authReady })
+  const { data: summary } = useQuery({
+    queryKey: ['transactions', 'dashboard-summary', year, month],
+    queryFn: () =>
+      api.get<DashboardSummary>(
+        `/transactions/dashboard-summary?startDate=${ym}-01&endDate=${ym}-${String(lastDay).padStart(2, '0')}`,
+      ),
+    enabled: authReady,
+  })
 
   const isCurrentMonth = year === now.year && month === now.month
   const canGoNext = compareYearMonth({ year, month }, now) < 0
@@ -208,8 +230,8 @@ function DashboardContent() {
 
   const budgetItems = budgets?.slice(0, 5) ?? []
   const topGoals = goals?.slice(0, 3) ?? []
-  const monthBalance = monthIncome - monthExpense
-  const monthBalanceLiquidated = monthIncomeLiquidated - monthExpenseLiquidated
+  const monthBalance = summary?.netResult ?? monthIncome - monthExpense
+  const monthBalanceLiquidated = summary?.netResult ?? monthIncomeLiquidated - monthExpenseLiquidated
 
   const monthTitle = getMonthName(month)
   const periodLabel = formatMonthYearLabel(year, month)
@@ -270,6 +292,35 @@ function DashboardContent() {
           projectedValueClass={monthBalance >= 0 ? 'text-emerald-400/75' : 'text-rose-400/75'}
         />
       </div>
+
+      {summary ? (
+        <Card>
+          <CardContent className="grid grid-cols-1 gap-3 p-4 text-sm md:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Receita bruta</p>
+              <p className="font-mono tabular-nums text-emerald-400">{formatCurrency(summary.grossIncome)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Despesa bruta</p>
+              <p className="font-mono tabular-nums text-rose-400">{formatCurrency(summary.grossExpense)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Compensações</p>
+              <p className="font-mono tabular-nums text-foreground">
+                +{formatCurrency(summary.expenseReimbursements)} / -{formatCurrency(summary.incomeReversals)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Resultado líquido</p>
+              <p
+                className={`font-mono tabular-nums ${summary.netResult >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}
+              >
+                {formatCurrency(summary.netResult)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
