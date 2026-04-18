@@ -60,6 +60,15 @@ export interface Transaction {
   liquidated?: boolean
 }
 
+export interface ReimbursementContext {
+  transaction: Transaction
+  reimbursements: Transaction[]
+  suggested: {
+    type: 'INCOME' | 'EXPENSE'
+    categoryId: string | null
+  }
+}
+
 export interface TransactionFilters {
   page?: number
   limit?: number
@@ -151,6 +160,15 @@ export interface CreateTransactionPayload {
   installmentCount?: number
   liquidated?: boolean
   confirmed?: boolean
+}
+
+export function useReimbursementContext(transactionId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['transactions', 'reimbursement-context', transactionId],
+    queryFn: () =>
+      api.get<ReimbursementContext>(`/transactions/${transactionId as string}/reimbursement-context`),
+    enabled: enabled && !!transactionId,
+  })
 }
 
 export function useCreateTransaction() {
