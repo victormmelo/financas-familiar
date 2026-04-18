@@ -58,6 +58,24 @@ function transactionMovementLabel(t: Transaction): string | null {
   }
   return null
 }
+
+function transactionNatureLabel(t: Transaction): string | null {
+  if (t.nature === 'REIMBURSEMENT') return 'Reembolso'
+  if (t.nature === 'TRANSFER') return 'Transferência'
+  if (t.nature === 'ADJUSTMENT') return 'Ajuste'
+  if (t.nature === 'REVERSAL') return 'Estorno'
+  return null
+}
+
+function natureBadgeVariant(
+  nature: Transaction['nature'],
+): 'secondary' | 'success' | 'info' | 'warning' | 'destructive' {
+  if (nature === 'REIMBURSEMENT') return 'info'
+  if (nature === 'TRANSFER') return 'secondary'
+  if (nature === 'ADJUSTMENT') return 'warning'
+  if (nature === 'REVERSAL') return 'destructive'
+  return 'success'
+}
 const filterDateClass =
   'h-10 min-h-10 w-full rounded-sm font-mono text-sm tabular-nums md:h-8 md:min-h-0'
 
@@ -550,6 +568,14 @@ export default function TransacoesPage() {
                               Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
                             </p>
                           )}
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {transactionNatureLabel(t) ? (
+                              <Badge variant={natureBadgeVariant(t.nature)}>{transactionNatureLabel(t)}</Badge>
+                            ) : null}
+                            {t.linkedTransactionId ? (
+                              <Badge variant="outline">Vínculo #{t.linkedTransactionId.slice(0, 8)}</Badge>
+                            ) : null}
+                          </div>
                           {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                         </div>
                         <dl className="grid gap-1 text-xs text-secondary-foreground">
@@ -652,6 +678,14 @@ export default function TransacoesPage() {
                               Cartão: <span className="text-foreground/90">{t.creditCard.name}</span>
                             </p>
                           )}
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {transactionNatureLabel(t) ? (
+                              <Badge variant={natureBadgeVariant(t.nature)}>{transactionNatureLabel(t)}</Badge>
+                            ) : null}
+                            {t.linkedTransactionId ? (
+                              <Badge variant="outline">Vínculo #{t.linkedTransactionId.slice(0, 8)}</Badge>
+                            ) : null}
+                          </div>
                           {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
                         </td>
                         <td className="px-4 py-3 text-secondary-foreground">{t.account?.name ?? '—'}</td>
@@ -827,6 +861,8 @@ export default function TransacoesPage() {
 function TransactionAmount({ t }: { t: Transaction }) {
   const isTransfer = t.recognition === 'TRANSFER_LEG'
   const isInvoicePay = t.recognition === 'INVOICE_PAYMENT'
+  const isReimbursement = t.nature === 'REIMBURSEMENT'
+  const displayedAmount = t.netAmount ?? t.amount
   return (
     <span
       className={cn(
@@ -839,7 +875,10 @@ function TransactionAmount({ t }: { t: Transaction }) {
       )}
     >
       {t.type === 'INCOME' ? '+' : '-'}
-      {formatCurrency(t.amount)}
+      {formatCurrency(displayedAmount)}
+      {isReimbursement ? (
+        <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-[#86C3E6]">comp.</span>
+      ) : null}
     </span>
   )
 }

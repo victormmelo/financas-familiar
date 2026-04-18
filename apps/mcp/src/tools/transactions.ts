@@ -1,12 +1,160 @@
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 import { withMcpToolOAuth } from '../mcp-scopes.js'
+
+type DecimalLike = { toNumber(): number }
+
+function decimalToNumber(value: DecimalLike | number | null | undefined): number {
+  if (value === null || value === undefined) return 0
+  return typeof value === 'number' ? value : value.toNumber()
+}
+
+async function appendReimbursementMetrics<
+  T extends {
+    id: string
+    amount: DecimalLike
+    nature: string
+    linkedTransaction?: { amount: DecimalLike } | null
+  },
+>(
+  familyId: string,
+  transactions: T[],
+): Promise<Array<T & { reimbursedAmount: number; remainingReimbursableAmount: number; netAmount: number }>> {
+  if (transactions.length === 0) return []
+  const ids = transactions.map((tx) => tx.id)
+  const reimbursements = (await prisma.transaction.groupBy({
+    by: ['linkedTransactionId'],
+    where: {
+      familyId,
+      nature: 'REIMBURSEMENT',
+      status: { not: 'DELETED' },
+      linkedTransactionId: { in: ids },
+    },
+    _sum: { amount: true },
+  })) as Array<{ linkedTransactionId: string | null; _sum: { amount: DecimalLike | null } }>
+
+  const reimbursedById = new Map(
+    reimbursements
+      .filter((row) => row.linkedTransactionId !== null)
+      .map((row) => [row.linkedTransactionId as string, decimalToNumber(row._sum.amount)]),
+  )
+
+  return transactions.map((tx) => {
+    const amount = decimalToNumber(tx.amount)
+    const reimbursedAmount = reimbursedById.get(tx.id) ?? 0
+    return {
+      ...tx,
+      reimbursedAmount,
+      remainingReimbursableAmount: Math.max(amount - reimbursedAmount, 0),
+      netAmount: tx.nature === 'REIMBURSEMENT' ? amount : amount - reimbursedAmount,
+    }
+  })
+}
+
+async function ensureNoLinkedTransactionCycle(
+  familyId: string,
+  currentTransactionId: string,
+  linkedTransactionId: string,
+) {
+  const visited = new Set<string>()
+  let cursor: string | null = linkedTransactionId
+
+  while (cursor) {
+    if (cursor === currentTransactionId) {
+      throw new Error('Vínculo inválido: ciclo detectado entre transações')
+    }
+    if (visited.has(cursor)) break
+    visited.add(cursor)
+
+    const parent = (await prisma.transaction.findFirst({
+      where: { id: cursor, familyId },
+      select: { linkedTransactionId: true },
+    })) as { linkedTransactionId: string | null } | null
+    if (!parent) break
+    cursor = parent.linkedTransactionId
+  }
+}
+
+async function validateReimbursementLink(params: {
+  familyId: string
+  linkedTransactionId: string
+  transactionType: 'INCOME' | 'EXPENSE'
+  amount: number
+  categoryId?: string | null
+  currentTransactionId?: string
+}) {
+  const { familyId, linkedTransactionId, transactionType, amount, categoryId, currentTransactionId } = params
+
+  const linkedTransaction = await prisma.transaction.findFirst({
+    where: {
+      id: linkedTransactionId,
+      familyId,
+      status: { not: 'DELETED' },
+    },
+    select: {
+      id: true,
+      type: true,
+      nature: true,
+      amount: true,
+      categoryId: true,
+    },
+  })
+  if (!linkedTransaction) throw new Error('Transação vinculada não encontrada')
+  if (currentTransactionId && linkedTransaction.id === currentTransactionId) {
+    throw new Error('Uma transação não pode ser vinculada a ela mesma')
+  }
+  if (linkedTransaction.nature === 'REIMBURSEMENT') {
+    throw new Error('Reembolso deve apontar para a transação original, não para outro reembolso')
+  }
+  if (currentTransactionId) {
+    await ensureNoLinkedTransactionCycle(familyId, currentTransactionId, linkedTransaction.id)
+  }
+
+  const expectedType = linkedTransaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE'
+  if (transactionType !== expectedType) {
+    throw new Error(`Tipo inválido para reembolso: esperado ${expectedType} para compensar ${linkedTransaction.type}`)
+  }
+  if (
+    categoryId !== undefined &&
+    categoryId !== null &&
+    linkedTransaction.categoryId !== null &&
+    categoryId !== linkedTransaction.categoryId
+  ) {
+    throw new Error('Categoria do reembolso deve ser igual à categoria da transação original')
+  }
+
+  const reimbursedAgg = await prisma.transaction.aggregate({
+    where: {
+      familyId,
+      nature: 'REIMBURSEMENT',
+      linkedTransactionId: linkedTransaction.id,
+      status: { not: 'DELETED' },
+      ...(currentTransactionId ? { id: { not: currentTransactionId } } : {}),
+    },
+    _sum: { amount: true },
+  })
+  const reimbursedAmount = decimalToNumber(reimbursedAgg._sum.amount)
+  const originalAmount = decimalToNumber(linkedTransaction.amount)
+  if (reimbursedAmount + amount > originalAmount) {
+    throw new Error('Soma dos reembolsos não pode ultrapassar o valor da transação original')
+  }
+
+  return {
+    linkedTransaction,
+    resolvedCategoryId: categoryId ?? linkedTransaction.categoryId ?? null,
+    reimbursedAmount,
+    remainingReimbursableAmount: Math.max(originalAmount - reimbursedAmount, 0),
+  }
+}
 
 const createTransactionInput = z
   .object({
     accountId: z.string().uuid().optional(),
     type: z.enum(['INCOME', 'EXPENSE']),
+    nature: z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL']).default('NORMAL'),
+    linkedTransactionId: z.string().uuid().optional(),
     amount: z.number().positive(),
     description: z.string().min(1),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato: YYYY-MM-DD'),
@@ -26,6 +174,8 @@ const listTransactionsInput = z.object({
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
   type: z.enum(['INCOME', 'EXPENSE']).optional(),
+  nature: z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL']).optional(),
+  linkedTransactionId: z.string().uuid().optional(),
   status: z.enum(['DRAFT', 'CONFIRMED', 'DELETED']).optional(),
   liquidated: z.coerce.boolean().optional(),
   limit: z.number().int().min(1).max(100).default(50),
@@ -56,6 +206,15 @@ const transactionToolDefinitionsBase = [
         accountId: { type: 'string', description: 'ID da conta bancária' },
         categoryId: { type: 'string', description: 'ID da categoria' },
         type: { type: 'string', enum: ['INCOME', 'EXPENSE'], description: 'Tipo: INCOME ou EXPENSE' },
+        nature: {
+          type: 'string',
+          enum: ['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'],
+          description: 'Natureza gerencial da transação',
+        },
+        linkedTransactionId: {
+          type: 'string',
+          description: 'Filtra por ID da transação original vinculada (reembolsos)',
+        },
         status: {
           type: 'string',
           enum: ['DRAFT', 'CONFIRMED', 'DELETED'],
@@ -91,6 +250,15 @@ const transactionToolDefinitionsBase = [
           description: 'ID da conta bancária (opcional se creditCardId e o cartão tiver conta padrão)',
         },
         type: { type: 'string', enum: ['INCOME', 'EXPENSE'], description: 'INCOME para receita, EXPENSE para despesa' },
+        nature: {
+          type: 'string',
+          enum: ['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'],
+          description: 'Natureza gerencial (padrão: NORMAL)',
+        },
+        linkedTransactionId: {
+          type: 'string',
+          description: 'Obrigatório em nature=REIMBURSEMENT (transação original)',
+        },
         amount: { type: 'number', description: 'Valor positivo em reais' },
         description: { type: 'string', description: 'Descrição do lançamento' },
         date: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
@@ -98,6 +266,18 @@ const transactionToolDefinitionsBase = [
         notes: { type: 'string', description: 'Observações adicionais (opcional)' },
         creditCardId: { type: 'string', description: 'ID do cartão de crédito (se for gasto no cartão)' },
         liquidated: { type: 'boolean', description: 'Padrão false; true se já liquidou no caixa' },
+      },
+    },
+  },
+  {
+    name: 'get_reimbursement_context',
+    description:
+      'Retorna contexto de reembolso de uma transação original: valor original, total já reembolsado, saldo reembolsável e sugestão de tipo/categoria.',
+    inputSchema: {
+      type: 'object' as const,
+      required: ['id'],
+      properties: {
+        id: { type: 'string', description: 'ID da transação original' },
       },
     },
   },
@@ -135,6 +315,12 @@ const transactionToolDefinitionsBase = [
         amount: { type: 'number', description: 'Novo valor positivo em reais' },
         date: { type: 'string', description: 'Nova data (YYYY-MM-DD)' },
         categoryId: { type: 'string', description: 'Novo ID de categoria' },
+        nature: {
+          type: 'string',
+          enum: ['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'],
+          description: 'Nova natureza gerencial',
+        },
+        linkedTransactionId: { type: 'string', description: 'Vínculo da transação original para reembolso' },
         notes: { type: 'string' },
         liquidated: { type: 'boolean' },
       },
@@ -186,6 +372,8 @@ const transactionToolDefinitionsBase = [
             properties: {
               accountId: { type: 'string' },
               type: { type: 'string', enum: ['INCOME', 'EXPENSE'] },
+              nature: { type: 'string', enum: ['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'] },
+              linkedTransactionId: { type: 'string' },
               amount: { type: 'number' },
               description: { type: 'string' },
               date: { type: 'string' },
@@ -210,7 +398,19 @@ export function registerTransactionHandlers(
   toolHandlerMap.set('list_transactions', async (args) => {
     const { familyId } = getContext()
     const input = listTransactionsInput.parse(args)
-    const { page, limit, accountId, categoryId, type, status, startDate, endDate, liquidated } = input
+    const {
+      page,
+      limit,
+      accountId,
+      categoryId,
+      type,
+      nature,
+      linkedTransactionId,
+      status,
+      startDate,
+      endDate,
+      liquidated,
+    } = input
     const skip = (page - 1) * limit
 
     const where = {
@@ -218,6 +418,8 @@ export function registerTransactionHandlers(
       ...(accountId && { accountId }),
       ...(categoryId && { categoryId }),
       ...(type && { type }),
+      ...(nature && { nature }),
+      ...(linkedTransactionId && { linkedTransactionId }),
       ...(status ? { status } : { status: { not: 'DELETED' as const } }),
       ...(liquidated !== undefined && { liquidated }),
       ...(startDate || endDate
@@ -255,6 +457,18 @@ export function registerTransactionHandlers(
               creditCard: { select: { id: true, name: true } },
             },
           },
+          linkedTransaction: {
+            select: {
+              id: true,
+              type: true,
+              nature: true,
+              status: true,
+              amount: true,
+              categoryId: true,
+              description: true,
+              category: { select: { id: true, name: true, type: true } },
+            },
+          },
         },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
         skip,
@@ -263,10 +477,15 @@ export function registerTransactionHandlers(
       prisma.transaction.count({ where }),
     ])
 
+    const withMetrics = await appendReimbursementMetrics(familyId, transactions)
+
     return {
-      transactions: transactions.map((t: (typeof transactions)[number]) => ({
+      transactions: withMetrics.map((t: (typeof withMetrics)[number]) => ({
         ...t,
-        amount: Number(t.amount),
+        amount: decimalToNumber(t.amount),
+        linkedTransaction: t.linkedTransaction
+          ? { ...t.linkedTransaction, amount: decimalToNumber(t.linkedTransaction.amount) }
+          : null,
       })),
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     }
@@ -300,17 +519,118 @@ export function registerTransactionHandlers(
           },
         },
         draft: true,
+        linkedTransaction: {
+          select: {
+            id: true,
+            type: true,
+            nature: true,
+            status: true,
+            amount: true,
+            categoryId: true,
+            description: true,
+            category: { select: { id: true, name: true, type: true } },
+          },
+        },
       },
     })
     if (!t) throw new Error('Transação não encontrada')
-    return { ...t, amount: Number(t.amount) }
+    const [withMetrics] = await appendReimbursementMetrics(familyId, [t])
+    return {
+      ...withMetrics,
+      amount: decimalToNumber(withMetrics.amount),
+      linkedTransaction: withMetrics.linkedTransaction
+        ? {
+            ...withMetrics.linkedTransaction,
+            amount: decimalToNumber(withMetrics.linkedTransaction.amount),
+          }
+        : null,
+    }
+  })
+
+  toolHandlerMap.set('get_reimbursement_context', async (args) => {
+    const { familyId } = getContext()
+    const { id } = z.object({ id: z.string().uuid() }).parse(args)
+
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, familyId, status: { not: 'DELETED' } },
+      include: {
+        category: { select: { id: true, name: true, type: true } },
+        account: { select: { id: true, name: true } },
+      },
+    })
+    if (!transaction) throw new Error('Transação original não encontrada')
+    if (transaction.nature === 'REIMBURSEMENT') {
+      throw new Error('Selecione uma transação original (nature=NORMAL), não um reembolso')
+    }
+
+    const reimbursements = await prisma.transaction.findMany({
+      where: {
+        familyId,
+        nature: 'REIMBURSEMENT',
+        linkedTransactionId: transaction.id,
+        status: { not: 'DELETED' },
+      },
+      include: {
+        category: { select: { id: true, name: true, type: true } },
+        account: { select: { id: true, name: true } },
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    })
+
+    const reimbursedAmount = reimbursements.reduce(
+      (sum: number, tx: (typeof reimbursements)[number]) => sum + decimalToNumber(tx.amount),
+      0,
+    )
+    const originalAmount = decimalToNumber(transaction.amount)
+
+    return {
+      transaction: {
+        ...transaction,
+        amount: originalAmount,
+        reimbursedAmount,
+        remainingReimbursableAmount: Math.max(originalAmount - reimbursedAmount, 0),
+        netAmount: originalAmount - reimbursedAmount,
+      },
+      reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) => ({
+        ...tx,
+        amount: decimalToNumber(tx.amount),
+        reimbursedAmount: 0,
+        remainingReimbursableAmount: 0,
+        netAmount: decimalToNumber(tx.amount),
+      })),
+      suggested: {
+        type: transaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE',
+        categoryId: transaction.categoryId,
+      },
+    }
   })
 
   toolHandlerMap.set('create_transaction', async (args) => {
     const { familyId, userId } = getContext()
     const input = createTransactionInput.parse(args)
 
+    const nature = input.nature ?? 'NORMAL'
     let resolvedAccountId = input.accountId
+    let resolvedCategoryId: string | null = input.categoryId ?? null
+    let resolvedLinkedTransactionId: string | null = null
+
+    if (nature === 'REIMBURSEMENT') {
+      if (!input.linkedTransactionId) {
+        throw new Error('linkedTransactionId é obrigatório para reembolso')
+      }
+      const reimbursementValidation = await validateReimbursementLink({
+        familyId,
+        linkedTransactionId: input.linkedTransactionId,
+        transactionType: input.type,
+        amount: input.amount,
+        categoryId: resolvedCategoryId,
+      })
+      resolvedLinkedTransactionId = reimbursementValidation.linkedTransaction.id
+      resolvedCategoryId = reimbursementValidation.resolvedCategoryId
+    } else if (input.linkedTransactionId) {
+      throw new Error('linkedTransactionId só pode ser usado com nature=REIMBURSEMENT')
+    }
+
     if (input.creditCardId) {
       const card = await prisma.creditCard.findFirst({ where: { id: input.creditCardId, familyId } })
       if (!card) throw new Error('Cartão não encontrado')
@@ -326,8 +646,8 @@ export function registerTransactionHandlers(
     const account = await prisma.account.findFirst({ where: { id: resolvedAccountId, familyId } })
     if (!account) throw new Error('Conta não encontrada')
 
-    if (input.categoryId) {
-      const cat = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
+    if (resolvedCategoryId) {
+      const cat = await prisma.category.findFirst({ where: { id: resolvedCategoryId, familyId } })
       if (!cat) throw new Error('Categoria não encontrada')
     }
 
@@ -335,9 +655,11 @@ export function registerTransactionHandlers(
       data: {
         familyId,
         accountId: resolvedAccountId,
-        categoryId: input.categoryId,
+        categoryId: resolvedCategoryId,
         createdById: userId,
         type: input.type,
+        nature,
+        linkedTransactionId: resolvedLinkedTransactionId,
         status: 'DRAFT',
         amount: input.amount,
         description: input.description,
@@ -351,9 +673,28 @@ export function registerTransactionHandlers(
         account: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
         creditCard: { select: { id: true, name: true } },
+        linkedTransaction: {
+          select: {
+            id: true,
+            type: true,
+            nature: true,
+            status: true,
+            amount: true,
+            categoryId: true,
+            description: true,
+            category: { select: { id: true, name: true, type: true } },
+          },
+        },
       },
     })
-    return { ...t, amount: Number(t.amount) }
+    const [withMetrics] = await appendReimbursementMetrics(familyId, [t])
+    return {
+      ...withMetrics,
+      amount: decimalToNumber(withMetrics.amount),
+      linkedTransaction: withMetrics.linkedTransaction
+        ? { ...withMetrics.linkedTransaction, amount: decimalToNumber(withMetrics.linkedTransaction.amount) }
+        : null,
+    }
   })
 
   toolHandlerMap.set('confirm_transaction', async (args) => {
@@ -390,15 +731,54 @@ export function registerTransactionHandlers(
         amount: z.number().positive().optional(),
         date: z.string().optional(),
         categoryId: z.string().nullable().optional(),
+        nature: z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL']).optional(),
+        linkedTransactionId: z.string().uuid().nullable().optional(),
         notes: z.string().nullable().optional(),
         liquidated: z.boolean().optional(),
       })
       .parse(args)
 
     const { id, ...updates } = input
-    const t = await prisma.transaction.findFirst({ where: { id, familyId } })
+    const t = await prisma.transaction.findFirst({
+      where: { id, familyId },
+      include: { linkedTransaction: { select: { id: true } } },
+    })
     if (!t) throw new Error('Transação não encontrada')
     if (t.status === 'DELETED') throw new Error('Não é possível editar transação excluída')
+
+    const nextNature = updates.nature ?? t.nature
+    const nextAmount = updates.amount ?? decimalToNumber(t.amount)
+    const providedLinkedTransactionId =
+      updates.linkedTransactionId === null
+        ? null
+        : updates.linkedTransactionId !== undefined
+          ? updates.linkedTransactionId
+          : t.linkedTransactionId
+    let resolvedLinkedTransactionId: string | null = providedLinkedTransactionId
+    let resolvedCategoryId = updates.categoryId !== undefined ? updates.categoryId : t.categoryId
+
+    if (resolvedCategoryId) {
+      const category = await prisma.category.findFirst({ where: { id: resolvedCategoryId, familyId } })
+      if (!category) throw new Error('Categoria não encontrada')
+    }
+
+    if (nextNature === 'REIMBURSEMENT') {
+      if (!resolvedLinkedTransactionId) {
+        throw new Error('linkedTransactionId é obrigatório para reembolso')
+      }
+      const reimbursementValidation = await validateReimbursementLink({
+        familyId,
+        linkedTransactionId: resolvedLinkedTransactionId,
+        transactionType: t.type,
+        amount: nextAmount,
+        categoryId: resolvedCategoryId,
+        currentTransactionId: t.id,
+      })
+      resolvedLinkedTransactionId = reimbursementValidation.linkedTransaction.id
+      resolvedCategoryId = reimbursementValidation.resolvedCategoryId
+    } else if (updates.linkedTransactionId !== undefined || updates.nature !== undefined) {
+      resolvedLinkedTransactionId = null
+    }
 
     const updated = await prisma.transaction.update({
       where: { id },
@@ -406,16 +786,41 @@ export function registerTransactionHandlers(
         ...(updates.description !== undefined && { description: updates.description }),
         ...(updates.amount !== undefined && { amount: updates.amount }),
         ...(updates.date !== undefined && { date: new Date(updates.date) }),
-        ...(updates.categoryId !== undefined && { categoryId: updates.categoryId }),
+        ...(updates.categoryId !== undefined || nextNature === 'REIMBURSEMENT'
+          ? { categoryId: resolvedCategoryId }
+          : {}),
+        ...(updates.nature !== undefined ? { nature: nextNature } : {}),
+        ...(updates.linkedTransactionId !== undefined || updates.nature !== undefined
+          ? { linkedTransactionId: resolvedLinkedTransactionId }
+          : {}),
         ...(updates.notes !== undefined && { notes: updates.notes }),
         ...(updates.liquidated !== undefined && { liquidated: updates.liquidated }),
       },
       include: {
         account: { select: { id: true, name: true } },
         category: { select: { id: true, name: true } },
+        linkedTransaction: {
+          select: {
+            id: true,
+            type: true,
+            nature: true,
+            status: true,
+            amount: true,
+            categoryId: true,
+            description: true,
+            category: { select: { id: true, name: true, type: true } },
+          },
+        },
       },
     })
-    return { ...updated, amount: Number(updated.amount) }
+    const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
+    return {
+      ...withMetrics,
+      amount: decimalToNumber(withMetrics.amount),
+      linkedTransaction: withMetrics.linkedTransaction
+        ? { ...withMetrics.linkedTransaction, amount: decimalToNumber(withMetrics.linkedTransaction.amount) }
+        : null,
+    }
   })
 
   toolHandlerMap.set('delete_transaction', async (args) => {
@@ -471,10 +876,31 @@ export function registerTransactionHandlers(
       .object({ transactions: z.array(createTransactionInput) })
       .parse(args)
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const out: { id: string }[] = []
       for (const input of transactions) {
+        const nature = input.nature ?? 'NORMAL'
+        let resolvedCategoryId: string | null = input.categoryId ?? null
+        let resolvedLinkedTransactionId: string | null = null
         let resolvedAccountId = input.accountId
+
+        if (nature === 'REIMBURSEMENT') {
+          if (!input.linkedTransactionId) {
+            throw new Error('linkedTransactionId é obrigatório para reembolso')
+          }
+          const reimbursementValidation = await validateReimbursementLink({
+            familyId,
+            linkedTransactionId: input.linkedTransactionId,
+            transactionType: input.type,
+            amount: input.amount,
+            categoryId: resolvedCategoryId,
+          })
+          resolvedLinkedTransactionId = reimbursementValidation.linkedTransaction.id
+          resolvedCategoryId = reimbursementValidation.resolvedCategoryId
+        } else if (input.linkedTransactionId) {
+          throw new Error('linkedTransactionId só pode ser usado com nature=REIMBURSEMENT')
+        }
+
         if (input.creditCardId) {
           const card = await tx.creditCard.findFirst({ where: { id: input.creditCardId, familyId } })
           if (!card) throw new Error('Cartão não encontrado')
@@ -488,13 +914,19 @@ export function registerTransactionHandlers(
         if (!resolvedAccountId) throw new Error('Conta obrigatória')
         const account = await tx.account.findFirst({ where: { id: resolvedAccountId, familyId } })
         if (!account) throw new Error('Conta não encontrada')
+        if (resolvedCategoryId) {
+          const cat = await tx.category.findFirst({ where: { id: resolvedCategoryId, familyId } })
+          if (!cat) throw new Error('Categoria não encontrada')
+        }
         const row = await tx.transaction.create({
           data: {
             familyId,
             accountId: resolvedAccountId,
-            categoryId: input.categoryId,
+            categoryId: resolvedCategoryId,
             createdById: userId,
             type: input.type,
+            nature,
+            linkedTransactionId: resolvedLinkedTransactionId,
             status: 'DRAFT',
             amount: input.amount,
             description: input.description,
@@ -510,6 +942,6 @@ export function registerTransactionHandlers(
       return out
     })
 
-    return { created: created.length, ids: created.map((t: (typeof created)[number]) => t.id) }
+    return { created: created.length, ids: created.map((tx: (typeof created)[number]) => tx.id) }
   })
 }
