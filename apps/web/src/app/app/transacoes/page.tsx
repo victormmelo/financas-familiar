@@ -14,6 +14,7 @@ import {
   Tag,
   Banknote,
   Loader2,
+  Undo2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TransactionForm } from '@/components/forms/transaction-form'
+import { ReimbursementQuickDialog } from '@/components/forms/reimbursement-quick-dialog'
 import {
   useTransactions,
   useConfirmTransaction,
@@ -77,6 +79,11 @@ function natureBadgeVariant(
   if (nature === 'REVERSAL') return 'destructive'
   return 'success'
 }
+
+/** Original elegível para registrar reembolso (API exige confirmada e não ser outro reembolso). */
+function canQuickReimburse(t: Transaction): boolean {
+  return t.status === 'CONFIRMED' && t.nature !== 'REIMBURSEMENT'
+}
 const filterDateClass =
   'h-10 min-h-10 w-full rounded-sm font-mono text-sm tabular-nums md:h-8 md:min-h-0'
 
@@ -86,6 +93,9 @@ export default function TransacoesPage() {
   const [showForm, setShowForm] = useState(false)
   const [createEntry, setCreateEntry] = useState<'default' | 'card'>('default')
   const [editingTx, setEditingTx] = useState<Transaction | undefined>()
+  const [refundDialog, setRefundDialog] = useState<
+    null | { kind: 'create'; original: Transaction } | { kind: 'edit'; reimbursement: Transaction }
+  >(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkCategoryPanelOpen, setBulkCategoryPanelOpen] = useState(false)
@@ -613,9 +623,16 @@ export default function TransacoesPage() {
                           onLiquidate={() => handleLiquidate(t.id)}
                           isLiquidating={liquidate.isPending && liquidate.variables?.id === t.id}
                           onEdit={() => {
+                            if (t.nature === 'REIMBURSEMENT') {
+                              setRefundDialog({ kind: 'edit', reimbursement: t })
+                              return
+                            }
                             setEditingTx(t)
                             setShowForm(true)
                           }}
+                          onReimburse={
+                            canQuickReimburse(t) ? () => setRefundDialog({ kind: 'create', original: t }) : undefined
+                          }
                           onDelete={() => setDeleteId(t.id)}
                           variant="card"
                         />
@@ -718,9 +735,16 @@ export default function TransacoesPage() {
                             onLiquidate={() => handleLiquidate(t.id)}
                             isLiquidating={liquidate.isPending && liquidate.variables?.id === t.id}
                             onEdit={() => {
+                              if (t.nature === 'REIMBURSEMENT') {
+                                setRefundDialog({ kind: 'edit', reimbursement: t })
+                                return
+                              }
                               setEditingTx(t)
                               setShowForm(true)
                             }}
+                            onReimburse={
+                              canQuickReimburse(t) ? () => setRefundDialog({ kind: 'create', original: t }) : undefined
+                            }
                             onDelete={() => setDeleteId(t.id)}
                             variant="table"
                           />
@@ -848,6 +872,20 @@ export default function TransacoesPage() {
         transaction={editingTx}
         createEntry={editingTx ? undefined : createEntry}
       />
+      <ReimbursementQuickDialog
+        key={
+          refundDialog?.kind === 'edit'
+            ? `rb-edit-${refundDialog.reimbursement.id}`
+            : refundDialog?.kind === 'create'
+              ? `rb-new-${refundDialog.original.id}`
+              : 'rb-closed'
+        }
+        open={refundDialog !== null}
+        onClose={() => setRefundDialog(null)}
+        mode={refundDialog?.kind === 'edit' ? 'edit' : 'create'}
+        original={refundDialog?.kind === 'create' ? refundDialog.original : undefined}
+        reimbursement={refundDialog?.kind === 'edit' ? refundDialog.reimbursement : undefined}
+      />
       <ConfirmDialog
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
@@ -891,6 +929,7 @@ function TransactionRowActions({
   onLiquidate,
   isLiquidating,
   onEdit,
+  onReimburse,
   onDelete,
   variant,
 }: {
@@ -899,6 +938,8 @@ function TransactionRowActions({
   onLiquidate: () => void
   isLiquidating?: boolean
   onEdit: () => void
+  /** Ausente quando o lançamento não pode receber reembolso rápido */
+  onReimburse?: () => void
   onDelete: () => void
   variant: 'card' | 'table'
 }) {
@@ -922,6 +963,17 @@ function TransactionRowActions({
           onClick={onConfirm}
         >
           <Check className="h-4 w-4" aria-hidden />
+        </button>
+      )}
+      {onReimburse && (
+        <button
+          type="button"
+          className={cn(btnClass, 'hover:text-[#86C3E6]')}
+          title="Registrar reembolso"
+          aria-label={`Registrar reembolso para: ${t.description}`}
+          onClick={onReimburse}
+        >
+          <Undo2 className="h-4 w-4" aria-hidden />
         </button>
       )}
       {showLiquidate && (

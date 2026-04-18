@@ -11,17 +11,11 @@ import { Select } from '@/components/ui/select'
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from '@/components/ui/dialog'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useCategories } from '@/hooks/use-categories'
-import {
-  useCreateTransaction,
-  useReimbursementContext,
-  useTransactions,
-  useUpdateTransaction,
-  type Transaction,
-} from '@/hooks/use-transactions'
+import { useCreateTransaction, useUpdateTransaction, type Transaction } from '@/hooks/use-transactions'
 import { useCreditCards } from '@/hooks/use-credit-cards'
 import { useToast } from '@/components/ui/toast'
 import { MoneyBrlInput } from '@/components/forms/money-brl-input'
-import { formatDate, formatDateInput } from '@/lib/utils'
+import { formatDateInput } from '@/lib/utils'
 import {
   findCategoryById,
   findCategoryPathNames,
@@ -41,11 +35,8 @@ const FREQ_LABELS: Record<Frequency, string> = {
   YEARLY: 'Anual',
 }
 
-const BRL_FORMATTER = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-
 /** Constrói uma string RRULE compatível com RFC 5545 sem depender da lib rrule no frontend. */
 function buildRRule(frequency: Frequency, startDate: string): string {
-  // Formata DTSTART como YYYYMMDDTHHMMSSZ
   const d = new Date(startDate + 'T00:00:00Z')
   const pad = (n: number) => String(n).padStart(2, '0')
   const dtstart = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T000000Z`
@@ -59,14 +50,9 @@ const schema = z
     accountId: z.string(),
     categoryId: z.string().optional(),
     creditCardId: z.string().optional(),
-    /** Receita creditada na fatura (estorno/cashback) — exige cartão quando true */
     cardCreditOnInvoice: z.boolean().default(false),
-    /** Despesa: à vista na conta vs fatura do cartão (UI + validação) */
     expenseSettlement: z.enum(['ACCOUNT', 'CARD']).default('ACCOUNT'),
     type: z.enum(['INCOME', 'EXPENSE']),
-    nature: z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL']).default('NORMAL'),
-    linkedTransactionId: z.string().optional(),
-    reimbursementOverflowReason: z.string().optional(),
     amount: z
       .number({ invalid_type_error: 'Informe o valor' })
       .positive('Valor deve ser positivo'),
@@ -84,29 +70,6 @@ const schema = z
     liquidated: z.boolean().default(true),
   })
   .superRefine((data, ctx) => {
-    const isReimbursement = data.nature === 'REIMBURSEMENT'
-    if (isReimbursement && !data.linkedTransactionId?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Selecione a transação original para vincular o reembolso',
-        path: ['linkedTransactionId'],
-      })
-    }
-    if (!isReimbursement && data.linkedTransactionId?.trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'linkedTransactionId só pode ser usado em reembolso',
-        path: ['linkedTransactionId'],
-      })
-    }
-    if (isReimbursement && (data.mode === 'recurring' || data.mode === 'installment')) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Reembolso não pode ser recorrente ou parcelado',
-        path: ['mode'],
-      })
-    }
-
     if (data.type === 'INCOME' && data.cardCreditOnInvoice && !data.creditCardId?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -138,9 +101,6 @@ type FormData = z.infer<typeof schema>
 function buildCreateDefaults(createEntry: 'default' | 'card' | undefined): Partial<FormData> {
   return {
     type: 'EXPENSE',
-    nature: 'NORMAL',
-    linkedTransactionId: '',
-    reimbursementOverflowReason: '',
     date: formatDateInput(new Date()),
     mode: 'simple',
     frequency: 'MONTHLY',
@@ -178,7 +138,6 @@ interface Props {
   open: boolean
   onClose: () => void
   transaction?: Transaction
-  /** Entrada na criação: atalho “No cartão” da página. Ignorado na edição. */
   createEntry?: 'default' | 'card'
 }
 
@@ -238,74 +197,18 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
   })
 
   const selectedType = watch('type')
-  const selectedNature = watch('nature')
   const selectedMode = watch('mode')
   const cardCreditOnInvoice = watch('cardCreditOnInvoice')
   const expenseSettlement = watch('expenseSettlement')
   const watchedCreditCardId = watch('creditCardId')
 
   const isEdit = !!transaction
-  const isReimbursement = selectedNature === 'REIMBURSEMENT'
-  const isReimbursementContextMode = !isEdit && isReimbursement
   const showAccountField =
     isEdit ||
-    (selectedType === 'EXPENSE' && expenseSettlement === 'ACCOUNT' && !isReimbursementContextMode) ||
-    (selectedType === 'INCOME' && !cardCreditOnInvoice && !isReimbursementContextMode)
+    (selectedType === 'EXPENSE' && expenseSettlement === 'ACCOUNT') ||
+    (selectedType === 'INCOME' && !cardCreditOnInvoice)
 
   const creditCardIdField = register('creditCardId')
-
-  const linkedTransactionId = watch('linkedTransactionId')
-  const reimbursementContextId =
-    isReimbursement && linkedTransactionId?.trim()
-      ? linkedTransactionId
-      : transaction?.nature === 'REIMBURSEMENT' && transaction.linkedTransactionId
-        ? transaction.linkedTransactionId
-        : undefined
-  const { data: reimbursementCandidates } = useTransactions({
-    page: 1,
-    limit: 100,
-    status: 'CONFIRMED',
-    enabled: isReimbursement,
-  })
-  const { data: reimbursementContext } = useReimbursementContext(reimbursementContextId, isReimbursement)
-
-  const candidateOriginals = useMemo(
-    () =>
-      (reimbursementCandidates?.data ?? []).filter(
-        (tx) => tx.nature !== 'REIMBURSEMENT' && tx.status === 'CONFIRMED' && tx.id !== transaction?.id,
-      ),
-    [reimbursementCandidates, transaction?.id],
-  )
-
-  const expectedReimbursementType = reimbursementContext?.suggested.type
-
-  useEffect(() => {
-    if (isEdit) return
-    if (!isReimbursement) {
-      setValue('linkedTransactionId', '', { shouldValidate: true })
-      setValue('reimbursementOverflowReason', '', { shouldValidate: false })
-      return
-    }
-    if (expectedReimbursementType) {
-      setValue('type', expectedReimbursementType, { shouldValidate: true })
-    }
-    if (reimbursementContext?.suggested.categoryId) {
-      setValue('categoryId', reimbursementContext.suggested.categoryId, { shouldValidate: true })
-    }
-  }, [
-    isReimbursement,
-    expectedReimbursementType,
-    reimbursementContext?.suggested.categoryId,
-    isEdit,
-    setValue,
-  ])
-
-  useEffect(() => {
-    if (!isReimbursement) return
-    if (selectedMode !== 'simple') {
-      setValue('mode', 'simple', { shouldValidate: true })
-    }
-  }, [isReimbursement, selectedMode, setValue])
 
   useEffect(() => {
     if (isEdit || !creditCards) return
@@ -339,9 +242,6 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
         cardCreditOnInvoice: transaction.type === 'INCOME' && !!transaction.creditCardId,
         expenseSettlement: transaction.creditCardId ? 'CARD' : 'ACCOUNT',
         type: transaction.type,
-        nature: transaction.nature ?? 'NORMAL',
-        linkedTransactionId: transaction.linkedTransactionId ?? '',
-        reimbursementOverflowReason: '',
         amount: transaction.amount,
         description: transaction.description,
         notes: transaction.notes ?? '',
@@ -395,16 +295,13 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
 
   const headerDescription = useMemo(() => {
     if (isEdit) return undefined
-    if (isReimbursement) {
-      return 'Compensação gerencial vinculada a uma transação original'
-    }
     if (selectedType === 'EXPENSE') {
       return expenseSettlement === 'CARD'
         ? 'Despesa na fatura do cartão'
         : 'Despesa à vista na conta'
     }
     return undefined
-  }, [isEdit, isReimbursement, selectedType, expenseSettlement])
+  }, [isEdit, selectedType, expenseSettlement])
 
   async function onSubmit(data: FormData) {
     try {
@@ -424,10 +321,6 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
         await update.mutateAsync({
           id: transaction.id,
           categoryId: data.categoryId || null,
-          nature: data.nature,
-          linkedTransactionId: data.nature === 'REIMBURSEMENT' ? data.linkedTransactionId || null : null,
-          reimbursementOverflowReason:
-            data.nature === 'REIMBURSEMENT' ? data.reimbursementOverflowReason || undefined : undefined,
           amount: normalizeReaisForApi(data.amount),
           description: data.description,
           notes: data.notes || null,
@@ -453,10 +346,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           categoryId: data.categoryId || undefined,
           creditCardId,
           type: data.type,
-          nature: data.nature,
-          linkedTransactionId: data.nature === 'REIMBURSEMENT' ? data.linkedTransactionId || undefined : undefined,
-          reimbursementOverflowReason:
-            data.nature === 'REIMBURSEMENT' ? data.reimbursementOverflowReason || undefined : undefined,
+          nature: 'NORMAL' as const,
           amount: normalizeReaisForApi(data.amount),
           description: data.description,
           notes: data.notes || undefined,
@@ -466,7 +356,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
           confirmed: true,
         }
 
-        if (data.mode === 'recurring' && data.nature !== 'REIMBURSEMENT') {
+        if (data.mode === 'recurring') {
           await create.mutateAsync({
             ...base,
             isRecurring: true,
@@ -476,7 +366,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             'Recorrência criada e confirmada! Rascunhos das próximas ocorrências gerados para os próximos 90 dias.',
             'success',
           )
-        } else if (data.mode === 'installment' && data.nature !== 'REIMBURSEMENT') {
+        } else if (data.mode === 'installment') {
           await create.mutateAsync({
             ...base,
             installmentCount: data.installmentCount,
@@ -513,7 +403,6 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit(onSubmit)}>
         <DialogBody className="space-y-5">
 
-          {/* Modo de lançamento — somente na criação */}
           {!isEdit && (
             <div className="min-w-0 space-y-1.5">
               <Label id="tx-form-mode-label">Tipo de lançamento</Label>
@@ -594,67 +483,6 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:items-start">
-            <div className="min-w-0 space-y-1.5">
-              <Label htmlFor="tx-form-nature">Natureza</Label>
-              <Select id="tx-form-nature" error={errors.nature?.message} {...register('nature')}>
-                <option value="NORMAL">Normal</option>
-                <option value="REIMBURSEMENT">Reembolso</option>
-                <option value="ADJUSTMENT">Ajuste</option>
-                <option value="REVERSAL">Estorno</option>
-              </Select>
-            </div>
-            {isReimbursement && (
-              <div className="min-w-0 space-y-1.5">
-                <Label htmlFor="tx-form-linked-transaction">Transação original</Label>
-                <Select
-                  id="tx-form-linked-transaction"
-                  error={errors.linkedTransactionId?.message}
-                  {...register('linkedTransactionId')}
-                >
-                  <option value="">Selecione a transação original</option>
-                  {candidateOriginals.map((tx) => (
-                    <option key={tx.id} value={tx.id}>
-                      {tx.description} · {tx.type === 'EXPENSE' ? 'Despesa' : 'Receita'} · {formatDate(tx.date)} ·{' '}
-                      {BRL_FORMATTER.format(tx.amount)}
-                    </option>
-                  ))}
-                </Select>
-                {candidateOriginals.length === 0 ? (
-                  <p className="text-[10px] text-muted-foreground">
-                    Nenhuma transação elegível encontrada no período atual.
-                  </p>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          {isReimbursement && reimbursementContext?.transaction && (
-            <div className="rounded-sm border border-[#28546A] bg-[#10202A] p-3 space-y-2">
-              <p className="text-xs font-medium text-[#86C3E6] uppercase tracking-wide">Contexto do reembolso</p>
-              <div className="grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
-                <p className="text-muted-foreground">
-                  Original:{' '}
-                  <span className="font-mono text-foreground">
-                    {BRL_FORMATTER.format(reimbursementContext.transaction.amount)}
-                  </span>
-                </p>
-                <p className="text-muted-foreground">
-                  Reembolsado:{' '}
-                  <span className="font-mono text-foreground">
-                    {BRL_FORMATTER.format(reimbursementContext.transaction.reimbursedAmount ?? 0)}
-                  </span>
-                </p>
-                <p className="text-muted-foreground sm:col-span-2">
-                  Saldo reembolsável:{' '}
-                  <span className="font-mono text-[#8DDBA4]">
-                    {BRL_FORMATTER.format(reimbursementContext.transaction.remainingReimbursableAmount ?? 0)}
-                  </span>
-                </p>
-              </div>
-            </div>
-          )}
-
           <div className="min-w-0 space-y-1.5">
             <Label htmlFor="tx-form-description">Descrição</Label>
             <Input
@@ -688,7 +516,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </p>
           )}
 
-          {!isEdit && selectedType === 'EXPENSE' && expenseSettlement === 'CARD' && !isReimbursementContextMode && (
+          {!isEdit && selectedType === 'EXPENSE' && expenseSettlement === 'CARD' && (
             <div className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/30 p-3">
               <p className="text-[11px] leading-snug text-muted-foreground">
                 A conta padrão do cartão ancora o lançamento (cadastro do cartão). O débito entra na fatura; o saldo da
@@ -719,18 +547,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           )}
 
-          {isReimbursement && (
-            <div className="min-w-0 space-y-1.5">
-              <Label htmlFor="tx-form-reimbursement-overflow-reason">Justificativa de extrapolação (opcional)</Label>
-              <Input
-                id="tx-form-reimbursement-overflow-reason"
-                placeholder="Somente necessário se o total de reembolsos ultrapassar o valor original."
-                {...register('reimbursementOverflowReason')}
-              />
-            </div>
-          )}
-
-          {!isEdit && selectedType === 'INCOME' && !isReimbursementContextMode && (
+          {!isEdit && selectedType === 'INCOME' && (
             <div className="min-w-0 space-y-3 rounded-sm border border-border bg-muted/40 p-3">
               <label className="flex items-start gap-2 cursor-pointer text-sm">
                 <Controller
@@ -801,8 +618,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           </div>
 
-          {/* Campos extras: Recorrente */}
-          {!isEdit && selectedMode === 'recurring' && !isReimbursement && (
+          {!isEdit && selectedMode === 'recurring' && (
             <div className="rounded-sm border border-[#285E38] bg-[#112417] p-3 space-y-3">
               <p className="text-xs font-medium text-[#8DDBA4] uppercase tracking-wide">Configuração de recorrência</p>
               <div className="space-y-1.5">
@@ -819,8 +635,7 @@ export function TransactionForm({ open, onClose, transaction, createEntry = 'def
             </div>
           )}
 
-          {/* Campos extras: Parcelado */}
-          {!isEdit && selectedMode === 'installment' && !isReimbursement && (
+          {!isEdit && selectedMode === 'installment' && (
             <div className="rounded-sm border border-[#28546A] bg-[#10202A] p-3 space-y-3">
               <p className="text-xs font-medium text-[#86C3E6] uppercase tracking-wide">Configuração de parcelamento</p>
               <div className="space-y-1.5">

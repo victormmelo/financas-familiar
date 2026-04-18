@@ -62,6 +62,8 @@ export const updateTransactionSchema = z.object({
   notes: z.string().optional().nullable(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   liquidated: z.boolean().optional(),
+  /** Troca de conta no lançamento (ex.: reembolso). Deve pertencer à mesma família. */
+  accountId: z.string().uuid('ID de conta inválido').optional(),
 })
 
 export const bulkConfirmSchema = z.object({

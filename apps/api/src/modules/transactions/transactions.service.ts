@@ -60,22 +60,22 @@ async function appendReimbursementMetrics<
   if (transactions.length === 0) return []
 
   const ids = transactions.map((tx) => tx.id)
-  const reimbursements = (await prisma.transaction.groupBy({
-    by: ['linkedTransactionId'],
+  const reimbursementRows = await prisma.transaction.findMany({
     where: {
       familyId,
       nature: 'REIMBURSEMENT',
       status: { not: 'DELETED' },
       linkedTransactionId: { in: ids },
     },
-    _sum: { amount: true },
-  })) as Array<{ linkedTransactionId: string | null; _sum: { amount: DecimalLike | null } }>
+    select: { linkedTransactionId: true, amount: true },
+  })
 
-  const reimbursedById = new Map(
-    reimbursements
-      .filter((row: { linkedTransactionId: string | null }) => row.linkedTransactionId !== null)
-      .map((row) => [row.linkedTransactionId as string, decimalToNumber(row._sum.amount)]),
-  )
+  const reimbursedById = new Map<string, number>()
+  for (const row of reimbursementRows) {
+    const lid = row.linkedTransactionId
+    if (lid === null) continue
+    reimbursedById.set(lid, (reimbursedById.get(lid) ?? 0) + decimalToNumber(row.amount))
+  }
 
   return transactions.map((tx) => {
     const amount = decimalToNumber(tx.amount)
@@ -587,10 +587,12 @@ export async function getDashboardSummary(familyId: string, query: DashboardSumm
         }
       : {}
 
+  const recognitionInExpense = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
+
   const baseWhere = {
     familyId,
     status: 'CONFIRMED' as const,
-    recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] as const },
+    recognition: { in: recognitionInExpense },
     ...(query.liquidated !== undefined ? { liquidated: query.liquidated } : {}),
     ...dateFilter,
   }
@@ -605,7 +607,7 @@ export async function getDashboardSummary(familyId: string, query: DashboardSumm
         ...baseWhere,
         type: 'EXPENSE',
         nature: 'NORMAL',
-        recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+        recognition: { in: recognitionInExpense },
       },
       _sum: { amount: true },
     }),
@@ -635,10 +637,10 @@ export async function getDashboardSummary(familyId: string, query: DashboardSumm
     }),
   ])
 
-  const grossIncome = decimalToNumber(grossIncomeAgg._sum.amount)
-  const grossExpense = decimalToNumber(grossExpenseAgg._sum.amount)
-  const expenseReimbursements = decimalToNumber(expenseReimbursementsAgg._sum.amount)
-  const incomeReversals = decimalToNumber(incomeReversalsAgg._sum.amount)
+  const grossIncome = decimalToNumber(grossIncomeAgg._sum?.amount)
+  const grossExpense = decimalToNumber(grossExpenseAgg._sum?.amount)
+  const expenseReimbursements = decimalToNumber(expenseReimbursementsAgg._sum?.amount)
+  const incomeReversals = decimalToNumber(incomeReversalsAgg._sum?.amount)
   const netIncome = grossIncome - incomeReversals
   const netExpense = grossExpense - expenseReimbursements
   const netResult = netIncome - netExpense
@@ -1083,6 +1085,15 @@ export async function updateTransaction(familyId: string, transactionId: string,
     resolvedLinkedTransactionId = null
   }
 
+  if (input.accountId !== undefined) {
+    const acc = await prisma.account.findFirst({
+      where: { id: input.accountId, familyId },
+    })
+    if (!acc) {
+      throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
+    }
+  }
+
   const updated = await prisma.transaction.update({
     where: { id: transactionId },
     data: {
@@ -1098,6 +1109,7 @@ export async function updateTransaction(familyId: string, transactionId: string,
       ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.date !== undefined && { date: parsePlainDate(input.date) }),
       ...(input.liquidated !== undefined && { liquidated: input.liquidated }),
+      ...(input.accountId !== undefined && { accountId: input.accountId }),
     },
     include: {
       account: { select: { id: true, name: true } },

@@ -200,6 +200,7 @@ export function useUpdateTransaction() {
       notes?: string | null
       date?: string
       liquidated?: boolean
+      accountId?: string
     }) => api.patch<Transaction>(`/transactions/${id}`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['transactions'] })
