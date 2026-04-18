@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js'
 import { randomUUID } from 'crypto'
 import { RRule } from 'rrule'
+import type { Prisma } from '@prisma/client'
 import { generateOccurrences } from '../../jobs/recurring-transactions.worker.js'
 import type {
   CreateTransactionInput,
@@ -10,10 +11,204 @@ import type {
   ListTransactionsInput,
 } from './transactions.schema.js'
 
+const ALLOW_REIMBURSEMENT_OVERFLOW = process.env.ALLOW_REIMBURSEMENT_OVERFLOW === 'true'
+
+type DecimalLike = { toNumber(): number }
+
 function statusForNewTransaction(confirmed: boolean | undefined) {
   return confirmed
     ? ({ status: 'CONFIRMED' as const, confirmedAt: new Date() })
     : ({ status: 'DRAFT' as const, confirmedAt: null })
+}
+
+function decimalToNumber(value: DecimalLike | number | null | undefined): number {
+  if (value === null || value === undefined) return 0
+  return typeof value === 'number' ? value : value.toNumber()
+}
+
+type TransactionWithReimbursementMetrics = {
+  reimbursedAmount: number
+  remainingReimbursableAmount: number
+  netAmount: number
+}
+
+async function appendReimbursementMetrics<
+  T extends {
+    id: string
+    amount: DecimalLike
+    nature: string
+    linkedTransaction?: { amount: DecimalLike } | null
+    rrule?: string | null
+  },
+>(
+  familyId: string,
+  transactions: T[],
+): Promise<Array<T & TransactionWithReimbursementMetrics>> {
+  if (transactions.length === 0) return []
+
+  const ids = transactions.map((tx) => tx.id)
+  const reimbursements = (await prisma.transaction.groupBy({
+    by: ['linkedTransactionId'],
+    where: {
+      familyId,
+      nature: 'REIMBURSEMENT',
+      status: { not: 'DELETED' },
+      linkedTransactionId: { in: ids },
+    },
+    _sum: { amount: true },
+  })) as Array<{ linkedTransactionId: string | null; _sum: { amount: DecimalLike | null } }>
+
+  const reimbursedById = new Map(
+    reimbursements
+      .filter((row: { linkedTransactionId: string | null }) => row.linkedTransactionId !== null)
+      .map((row) => [row.linkedTransactionId as string, decimalToNumber(row._sum.amount)]),
+  )
+
+  return transactions.map((tx) => {
+    const amount = decimalToNumber(tx.amount)
+    const reimbursedAmount = reimbursedById.get(tx.id) ?? 0
+    const remainingReimbursableAmount = Math.max(amount - reimbursedAmount, 0)
+    const netAmount = tx.nature === 'REIMBURSEMENT' ? amount : amount - reimbursedAmount
+
+    return {
+      ...tx,
+      reimbursedAmount,
+      remainingReimbursableAmount,
+      netAmount,
+    }
+  })
+}
+
+async function ensureNoLinkedTransactionCycle(
+  familyId: string,
+  currentTransactionId: string,
+  linkedTransactionId: string,
+) {
+  const visited = new Set<string>()
+  let cursor: string | null = linkedTransactionId
+
+  while (cursor) {
+    if (cursor === currentTransactionId) {
+      throw Object.assign(new Error('Vínculo inválido: ciclo detectado entre transações'), { statusCode: 400 })
+    }
+    if (visited.has(cursor)) {
+      break
+    }
+    visited.add(cursor)
+
+    const parent = (await prisma.transaction.findFirst({
+      where: { id: cursor, familyId },
+      select: { linkedTransactionId: true },
+    })) as { linkedTransactionId: string | null } | null
+    if (!parent) break
+    cursor = parent.linkedTransactionId
+  }
+}
+
+async function validateReimbursementLink(params: {
+  familyId: string
+  linkedTransactionId: string
+  transactionType: 'INCOME' | 'EXPENSE'
+  amount: number
+  categoryId?: string | null
+  currentTransactionId?: string
+  reimbursementOverflowReason?: string
+}) {
+  const {
+    familyId,
+    linkedTransactionId,
+    transactionType,
+    amount,
+    categoryId,
+    currentTransactionId,
+    reimbursementOverflowReason,
+  } = params
+
+  const linkedTransaction = await prisma.transaction.findFirst({
+    where: {
+      id: linkedTransactionId,
+      familyId,
+      status: { not: 'DELETED' },
+    },
+    select: {
+      id: true,
+      type: true,
+      nature: true,
+      amount: true,
+      categoryId: true,
+      linkedTransactionId: true,
+    },
+  })
+
+  if (!linkedTransaction) {
+    throw Object.assign(new Error('Transação vinculada não encontrada'), { statusCode: 404 })
+  }
+  if (currentTransactionId && linkedTransaction.id === currentTransactionId) {
+    throw Object.assign(new Error('Uma transação não pode ser vinculada a ela mesma'), {
+      statusCode: 400,
+    })
+  }
+  if (linkedTransaction.nature === 'REIMBURSEMENT') {
+    throw Object.assign(new Error('Reembolso deve apontar para a transação original, não para outro reembolso'), {
+      statusCode: 400,
+    })
+  }
+  if (currentTransactionId) {
+    await ensureNoLinkedTransactionCycle(familyId, currentTransactionId, linkedTransaction.id)
+  }
+
+  const expectedType = linkedTransaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE'
+  if (transactionType !== expectedType) {
+    throw Object.assign(
+      new Error(`Tipo inválido para reembolso: esperado ${expectedType} para compensar ${linkedTransaction.type}`),
+      { statusCode: 400 },
+    )
+  }
+
+  if (
+    categoryId !== undefined &&
+    categoryId !== null &&
+    linkedTransaction.categoryId !== null &&
+    categoryId !== linkedTransaction.categoryId
+  ) {
+    throw Object.assign(
+      new Error('Categoria do reembolso deve ser igual à categoria da transação original'),
+      { statusCode: 400 },
+    )
+  }
+
+  const reimbursedAgg = await prisma.transaction.aggregate({
+    where: {
+      familyId,
+      nature: 'REIMBURSEMENT',
+      linkedTransactionId: linkedTransaction.id,
+      status: { not: 'DELETED' },
+      ...(currentTransactionId ? { id: { not: currentTransactionId } } : {}),
+    },
+    _sum: { amount: true },
+  })
+
+  const reimbursedAmount = decimalToNumber(reimbursedAgg._sum.amount)
+  const originalAmount = decimalToNumber(linkedTransaction.amount)
+  const totalAfter = reimbursedAmount + amount
+  const wouldOverflow = totalAfter > originalAmount
+
+  if (wouldOverflow) {
+    const canOverflow = ALLOW_REIMBURSEMENT_OVERFLOW && !!reimbursementOverflowReason
+    if (!canOverflow) {
+      throw Object.assign(
+        new Error('Soma dos reembolsos não pode ultrapassar o valor da transação original'),
+        { statusCode: 409 },
+      )
+    }
+  }
+
+  return {
+    linkedTransaction,
+    reimbursedAmount,
+    remainingReimbursableAmount: Math.max(originalAmount - reimbursedAmount, 0),
+    resolvedCategoryId: categoryId ?? linkedTransaction.categoryId ?? null,
+  }
 }
 
 /** Resolve `accountId` a partir do payload (conta explícita ou padrão do cartão). */
@@ -47,7 +242,20 @@ async function resolveTransactionAccountId(
 }
 
 export async function listTransactions(familyId: string, query: ListTransactionsInput) {
-  const { page, limit, accountId, categoryId, type, status, startDate, endDate, isRecurring, liquidated } = query
+  const {
+    page,
+    limit,
+    accountId,
+    categoryId,
+    type,
+    nature,
+    linkedTransactionId,
+    status,
+    startDate,
+    endDate,
+    isRecurring,
+    liquidated,
+  } = query
   const skip = (page - 1) * limit
 
   const statusWhere =
@@ -60,6 +268,8 @@ export async function listTransactions(familyId: string, query: ListTransactions
     ...(accountId && { accountId }),
     ...(categoryId && { categoryId }),
     ...(type && { type }),
+    ...(nature && { nature }),
+    ...(linkedTransactionId && { linkedTransactionId }),
     ...statusWhere,
     ...(isRecurring !== undefined && { isRecurring }),
     ...(liquidated !== undefined && { liquidated }),
@@ -98,6 +308,18 @@ export async function listTransactions(familyId: string, query: ListTransactions
             creditCard: { select: { id: true, name: true } },
           },
         },
+        linkedTransaction: {
+          select: {
+            id: true,
+            type: true,
+            nature: true,
+            status: true,
+            amount: true,
+            categoryId: true,
+            description: true,
+            category: { select: { id: true, name: true, type: true } },
+          },
+        },
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       skip,
@@ -106,8 +328,10 @@ export async function listTransactions(familyId: string, query: ListTransactions
     prisma.transaction.count({ where }),
   ])
 
+  const data = await appendReimbursementMetrics(familyId, transactions)
+
   return {
-    data: transactions,
+    data,
     pagination: {
       page,
       limit,
@@ -142,11 +366,283 @@ export async function getTransaction(familyId: string, transactionId: string) {
           creditCard: { select: { id: true, name: true } },
         },
       },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
       draft: true,
     },
   })
   if (!transaction) throw Object.assign(new Error('Transação não encontrada'), { statusCode: 404 })
-  return transaction
+  const [withMetrics] = await appendReimbursementMetrics(familyId, [transaction])
+  return withMetrics
+}
+
+export async function getReimbursementContext(familyId: string, transactionId: string) {
+  const transaction = await prisma.transaction.findFirst({
+    where: {
+      id: transactionId,
+      familyId,
+      status: { not: 'DELETED' },
+    },
+    include: {
+      category: { select: { id: true, name: true, type: true } },
+      account: { select: { id: true, name: true } },
+    },
+  })
+  if (!transaction) throw Object.assign(new Error('Transação original não encontrada'), { statusCode: 404 })
+
+  if (transaction.nature === 'REIMBURSEMENT') {
+    throw Object.assign(
+      new Error('Selecione uma transação original (nature=NORMAL), não um reembolso'),
+      { statusCode: 400 },
+    )
+  }
+
+  const reimbursements = await prisma.transaction.findMany({
+    where: {
+      familyId,
+      nature: 'REIMBURSEMENT',
+      linkedTransactionId: transaction.id,
+      status: { not: 'DELETED' },
+    },
+    include: {
+      category: { select: { id: true, name: true, type: true } },
+      account: { select: { id: true, name: true } },
+    },
+    orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+  })
+
+  const reimbursedAmount = reimbursements.reduce(
+    (sum: number, tx: { amount: DecimalLike }) => sum + decimalToNumber(tx.amount),
+    0,
+  )
+  const originalAmount = decimalToNumber(transaction.amount)
+  const remainingReimbursableAmount = Math.max(originalAmount - reimbursedAmount, 0)
+  const suggestedReimbursementType = transaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE'
+
+  return {
+    transaction: {
+      ...transaction,
+      reimbursedAmount,
+      remainingReimbursableAmount,
+      netAmount: originalAmount - reimbursedAmount,
+    },
+    reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) => ({
+      ...tx,
+      reimbursedAmount: 0,
+      remainingReimbursableAmount: 0,
+      netAmount: decimalToNumber(tx.amount),
+    })),
+    suggested: {
+      type: suggestedReimbursementType,
+      categoryId: transaction.categoryId,
+    },
+  }
+}
+
+export async function getExpenseCategorySummary(
+  familyId: string,
+  startDate?: string,
+  endDate?: string,
+) {
+  const dateFilter =
+    startDate || endDate
+      ? {
+          date: {
+            ...(startDate ? { gte: new Date(startDate) } : {}),
+            ...(endDate ? { lte: new Date(endDate) } : {}),
+          },
+        }
+      : {}
+
+  const [expenses, reimbursements] = await Promise.all([
+    prisma.transaction.findMany({
+      where: {
+        familyId,
+        type: 'EXPENSE',
+        nature: 'NORMAL',
+        status: 'CONFIRMED',
+        recognition: 'OPERATIONAL',
+        ...dateFilter,
+      },
+      select: {
+        amount: true,
+        categoryId: true,
+        category: { select: { id: true, name: true, type: true } },
+      },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        familyId,
+        type: 'INCOME',
+        nature: 'REIMBURSEMENT',
+        status: 'CONFIRMED',
+        recognition: 'OPERATIONAL',
+        ...dateFilter,
+        linkedTransaction: {
+          type: 'EXPENSE',
+          nature: 'NORMAL',
+          status: { not: 'DELETED' },
+        },
+      },
+      select: {
+        amount: true,
+        linkedTransaction: {
+          select: {
+            categoryId: true,
+            category: { select: { id: true, name: true, type: true } },
+          },
+        },
+      },
+    }),
+  ])
+
+  const byCategory = new Map<string, {
+    categoryId: string | null
+    name: string
+    grossExpense: number
+    expenseReimbursements: number
+    netExpense: number
+  }>()
+
+  const upsertBucket = (categoryId: string | null, name: string) => {
+    const key = categoryId ?? '__sem-categoria__'
+    const current = byCategory.get(key) ?? {
+      categoryId,
+      name,
+      grossExpense: 0,
+      expenseReimbursements: 0,
+      netExpense: 0,
+    }
+    byCategory.set(key, current)
+    return current
+  }
+
+  for (const tx of expenses) {
+    const bucket = upsertBucket(tx.categoryId, tx.category?.name ?? 'Sem categoria')
+    bucket.grossExpense += decimalToNumber(tx.amount)
+  }
+
+  for (const tx of reimbursements) {
+    const linkedCategoryId = tx.linkedTransaction?.categoryId ?? null
+    const linkedCategoryName = tx.linkedTransaction?.category?.name ?? 'Sem categoria'
+    const bucket = upsertBucket(linkedCategoryId, linkedCategoryName)
+    bucket.expenseReimbursements += decimalToNumber(tx.amount)
+  }
+
+  const categories = Array.from(byCategory.values()).map((row) => ({
+    ...row,
+    netExpense: row.grossExpense - row.expenseReimbursements,
+  }))
+
+  const totalGrossExpense = categories.reduce((sum, row) => sum + row.grossExpense, 0)
+  const totalExpenseReimbursements = categories.reduce((sum, row) => sum + row.expenseReimbursements, 0)
+  const totalNetExpense = categories.reduce((sum, row) => sum + row.netExpense, 0)
+
+  return {
+    period: { startDate: startDate ?? null, endDate: endDate ?? null },
+    totalGrossExpense,
+    totalExpenseReimbursements,
+    totalNetExpense,
+    categories: categories.sort((a, b) => b.netExpense - a.netExpense),
+  }
+}
+
+type DashboardSummaryQuery = {
+  startDate?: string
+  endDate?: string
+  liquidated?: boolean
+}
+
+export async function getDashboardSummary(familyId: string, query: DashboardSummaryQuery) {
+  const dateFilter =
+    query.startDate || query.endDate
+      ? {
+          date: {
+            ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+            ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+          },
+        }
+      : {}
+
+  const baseWhere = {
+    familyId,
+    status: 'CONFIRMED' as const,
+    recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] as const },
+    ...(query.liquidated !== undefined ? { liquidated: query.liquidated } : {}),
+    ...dateFilter,
+  }
+
+  const [grossIncomeAgg, grossExpenseAgg, expenseReimbursementsAgg, incomeReversalsAgg] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: { ...baseWhere, type: 'INCOME', nature: 'NORMAL', recognition: 'OPERATIONAL' },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        ...baseWhere,
+        type: 'EXPENSE',
+        nature: 'NORMAL',
+        recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        ...baseWhere,
+        type: 'INCOME',
+        nature: 'REIMBURSEMENT',
+        linkedTransaction: {
+          type: 'EXPENSE',
+          nature: 'NORMAL',
+        },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        ...baseWhere,
+        type: 'EXPENSE',
+        nature: 'REIMBURSEMENT',
+        linkedTransaction: {
+          type: 'INCOME',
+          nature: 'NORMAL',
+        },
+      },
+      _sum: { amount: true },
+    }),
+  ])
+
+  const grossIncome = decimalToNumber(grossIncomeAgg._sum.amount)
+  const grossExpense = decimalToNumber(grossExpenseAgg._sum.amount)
+  const expenseReimbursements = decimalToNumber(expenseReimbursementsAgg._sum.amount)
+  const incomeReversals = decimalToNumber(incomeReversalsAgg._sum.amount)
+  const netIncome = grossIncome - incomeReversals
+  const netExpense = grossExpense - expenseReimbursements
+  const netResult = netIncome - netExpense
+  const cashIn = grossIncome + expenseReimbursements
+  const cashOut = grossExpense + incomeReversals
+
+  return {
+    grossIncome,
+    grossExpense,
+    expenseReimbursements,
+    incomeReversals,
+    netIncome,
+    netExpense,
+    netResult,
+    cashIn,
+    cashOut,
+  }
 }
 
 /**
@@ -160,9 +656,29 @@ export async function createTransaction(familyId: string, userId: string, input:
     input.creditCardId,
   )
 
+  const nature = input.nature ?? 'NORMAL'
+  let categoryId: string | null | undefined = input.categoryId ?? null
+  let linkedTransactionId: string | null = null
+
   if (input.categoryId) {
     const category = await prisma.category.findFirst({ where: { id: input.categoryId, familyId } })
     if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+  }
+
+  if (nature === 'REIMBURSEMENT') {
+    if (!input.linkedTransactionId) {
+      throw Object.assign(new Error('linkedTransactionId é obrigatório para reembolso'), { statusCode: 400 })
+    }
+    const reimbursementValidation = await validateReimbursementLink({
+      familyId,
+      linkedTransactionId: input.linkedTransactionId,
+      transactionType: input.type,
+      amount: input.amount,
+      categoryId,
+      reimbursementOverflowReason: input.reimbursementOverflowReason,
+    })
+    linkedTransactionId = reimbursementValidation.linkedTransaction.id
+    categoryId = reimbursementValidation.resolvedCategoryId
   }
 
   const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
@@ -171,9 +687,11 @@ export async function createTransaction(familyId: string, userId: string, input:
     data: {
       familyId,
       accountId,
-      categoryId: input.categoryId,
+      categoryId,
       createdById: userId,
       type: input.type,
+      nature,
+      linkedTransactionId,
       status,
       confirmedAt,
       amount: input.amount,
@@ -191,6 +709,18 @@ export async function createTransaction(familyId: string, userId: string, input:
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
       creditCard: { select: { id: true, name: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
     },
   })
 
@@ -204,7 +734,8 @@ export async function createTransaction(familyId: string, userId: string, input:
     })
   }
 
-  return transaction
+  const [withMetrics] = await appendReimbursementMetrics(familyId, [transaction])
+  return withMetrics
 }
 
 /**
@@ -216,6 +747,13 @@ export async function createInstallmentTransaction(
   userId: string,
   input: CreateTransactionInput & { installmentCount: number },
 ) {
+  if ((input.nature ?? 'NORMAL') !== 'NORMAL') {
+    throw Object.assign(
+      new Error('Parcelamento disponível apenas para transações com nature=NORMAL'),
+      { statusCode: 400 },
+    )
+  }
+
   const accountId = await resolveTransactionAccountId(
     familyId,
     input.accountId,
@@ -243,6 +781,8 @@ export async function createInstallmentTransaction(
           categoryId: input.categoryId,
           createdById: userId,
           type: input.type,
+          nature: 'NORMAL',
+          linkedTransactionId: null,
           status,
           confirmedAt,
           amount: input.amount,
@@ -277,11 +817,25 @@ export async function listRecurringTemplates(familyId: string) {
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
       creditCard: { select: { id: true, name: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   })
 
-  return templates.map((t) => {
+  const templatesWithMetrics = await appendReimbursementMetrics(familyId, templates)
+
+  return templatesWithMetrics.map((t) => {
     let nextOccurrences: string[] = []
     if (t.rrule) {
       try {
@@ -340,10 +894,29 @@ export async function confirmTransaction(familyId: string, transactionId: string
     throw Object.assign(new Error('Não é possível confirmar transação excluída'), { statusCode: 409 })
   }
 
-  return prisma.transaction.update({
+  const updated = await prisma.transaction.update({
     where: { id: transactionId },
     data: { status: 'CONFIRMED', confirmedAt: new Date() },
+    include: {
+      account: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, type: true } },
+      creditCard: { select: { id: true, name: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
+    },
   })
+  const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
+  return withMetrics
 }
 
 export async function bulkConfirm(familyId: string, input: BulkConfirmInput) {
@@ -383,7 +956,9 @@ export async function bulkSetCategory(familyId: string, input: BulkSetCategoryIn
     )
   }
 
-  const types = new Set(txs.map((t) => t.type))
+  const types = new Set(
+    (txs as Array<{ id: string; type: 'INCOME' | 'EXPENSE' }>).map((t) => t.type),
+  )
   if (types.size !== 1) {
     throw Object.assign(
       new Error('Selecione apenas receitas ou apenas despesas para definir categoria em lote'),
@@ -422,16 +997,69 @@ export async function bulkSetCategory(familyId: string, input: BulkSetCategoryIn
 export async function updateTransaction(familyId: string, transactionId: string, input: UpdateTransactionInput) {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, familyId },
+    include: {
+      linkedTransaction: {
+        select: { id: true, type: true, nature: true, categoryId: true, amount: true },
+      },
+    },
   })
   if (!transaction) throw Object.assign(new Error('Transação não encontrada'), { statusCode: 404 })
   if (transaction.status === 'DELETED') {
     throw Object.assign(new Error('Não é possível editar transação excluída'), { statusCode: 409 })
   }
 
-  return prisma.transaction.update({
+  const nextNature = input.nature ?? transaction.nature
+  const amount = input.amount ?? decimalToNumber(transaction.amount)
+  const type = transaction.type
+  const reimbursementOverflowReason = input.reimbursementOverflowReason
+
+  const providedLinkedTransactionId =
+    input.linkedTransactionId === null
+      ? null
+      : input.linkedTransactionId !== undefined
+        ? input.linkedTransactionId
+        : transaction.linkedTransactionId
+
+  let resolvedLinkedTransactionId: string | null = providedLinkedTransactionId
+  let resolvedCategoryId =
+    input.categoryId !== undefined ? input.categoryId : transaction.categoryId
+
+  if (resolvedCategoryId) {
+    const category = await prisma.category.findFirst({ where: { id: resolvedCategoryId, familyId } })
+    if (!category) throw Object.assign(new Error('Categoria não encontrada'), { statusCode: 404 })
+  }
+
+  if (nextNature === 'REIMBURSEMENT') {
+    if (!resolvedLinkedTransactionId) {
+      throw Object.assign(new Error('linkedTransactionId é obrigatório para reembolso'), { statusCode: 400 })
+    }
+
+    const reimbursementValidation = await validateReimbursementLink({
+      familyId,
+      linkedTransactionId: resolvedLinkedTransactionId,
+      transactionType: type,
+      amount,
+      categoryId: resolvedCategoryId,
+      currentTransactionId: transaction.id,
+      reimbursementOverflowReason,
+    })
+
+    resolvedLinkedTransactionId = reimbursementValidation.linkedTransaction.id
+    resolvedCategoryId = reimbursementValidation.resolvedCategoryId
+  } else if (input.linkedTransactionId !== undefined || input.nature !== undefined) {
+    resolvedLinkedTransactionId = null
+  }
+
+  const updated = await prisma.transaction.update({
     where: { id: transactionId },
     data: {
-      ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
+      ...(input.categoryId !== undefined || nextNature === 'REIMBURSEMENT'
+        ? { categoryId: resolvedCategoryId }
+        : {}),
+      ...(input.nature !== undefined ? { nature: nextNature } : {}),
+      ...(input.linkedTransactionId !== undefined || input.nature !== undefined
+        ? { linkedTransactionId: resolvedLinkedTransactionId }
+        : {}),
       ...(input.amount !== undefined && { amount: input.amount }),
       ...(input.description !== undefined && { description: input.description }),
       ...(input.notes !== undefined && { notes: input.notes }),
@@ -442,8 +1070,22 @@ export async function updateTransaction(familyId: string, transactionId: string,
       account: { select: { id: true, name: true } },
       category: { select: { id: true, name: true, type: true } },
       creditCard: { select: { id: true, name: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
     },
   })
+  const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
+  return withMetrics
 }
 
 export async function deleteTransaction(familyId: string, transactionId: string) {
@@ -466,7 +1108,7 @@ export async function restoreTransaction(familyId: string, transactionId: string
 
   const nextStatus = transaction.confirmedAt ? 'CONFIRMED' : 'DRAFT'
 
-  return prisma.transaction.update({
+  const restored = await prisma.transaction.update({
     where: { id: transactionId },
     data: { status: nextStatus },
     include: {
@@ -474,8 +1116,23 @@ export async function restoreTransaction(familyId: string, transactionId: string
       category: { select: { id: true, name: true, type: true } },
       createdBy: { select: { id: true, name: true } },
       creditCard: { select: { id: true, name: true } },
+      linkedTransaction: {
+        select: {
+          id: true,
+          type: true,
+          nature: true,
+          status: true,
+          amount: true,
+          categoryId: true,
+          description: true,
+          category: { select: { id: true, name: true, type: true } },
+        },
+      },
     },
   })
+
+  const [withMetrics] = await appendReimbursementMetrics(familyId, [restored])
+  return withMetrics
 }
 
 export async function permanentlyDeleteTransaction(familyId: string, transactionId: string) {
@@ -486,7 +1143,7 @@ export async function permanentlyDeleteTransaction(familyId: string, transaction
 
   const transferId = transaction.transferId
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.transactionDraft.deleteMany({ where: { transactionId } })
     await tx.transaction.delete({ where: { id: transactionId } })
     if (transferId) {

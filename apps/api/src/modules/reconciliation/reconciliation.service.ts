@@ -326,6 +326,8 @@ export async function convertItem(
       createdById: userId,
       categoryId: input.categoryId ?? null,
       type: item.type,
+      nature: 'NORMAL',
+      linkedTransactionId: null,
       status: 'DRAFT',
       amount: item.amount,
       description: input.description ?? item.description,

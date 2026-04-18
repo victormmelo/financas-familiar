@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const transactionTypeEnum = z.enum(['INCOME', 'EXPENSE'])
+const transactionNatureEnum = z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'])
 const draftSourceEnum = z.enum(['MANUAL', 'AI_TEXT', 'AI_VOICE', 'AI_RECEIPT', 'PDF', 'OFX', 'CSV', 'OPEN_FINANCE'])
 
 export const createTransactionSchema = z
@@ -9,6 +10,9 @@ export const createTransactionSchema = z
     accountId: z.string().uuid('ID de conta inválido').optional(),
     categoryId: z.string().uuid().optional(),
     type: transactionTypeEnum,
+    nature: transactionNatureEnum.default('NORMAL'),
+    linkedTransactionId: z.string().uuid().optional(),
+    reimbursementOverflowReason: z.string().min(5).max(500).optional(),
     amount: z.number().positive('Valor deve ser positivo'),
     description: z.string().min(1, 'Descrição obrigatória'),
     notes: z.string().optional(),
@@ -35,9 +39,24 @@ export const createTransactionSchema = z
     message: 'Selecione uma conta',
     path: ['accountId'],
   })
+  .refine((data) => data.nature !== 'REIMBURSEMENT' || !!data.linkedTransactionId, {
+    message: 'Transações de reembolso exigem linkedTransactionId',
+    path: ['linkedTransactionId'],
+  })
+  .refine((data) => data.nature === 'REIMBURSEMENT' || !data.linkedTransactionId, {
+    message: 'linkedTransactionId só pode ser usado com nature=REIMBURSEMENT',
+    path: ['linkedTransactionId'],
+  })
+  .refine((data) => data.nature !== 'REIMBURSEMENT' || (!data.isRecurring && !data.installmentCount), {
+    message: 'Reembolso não pode ser recorrente ou parcelado',
+    path: ['nature'],
+  })
 
 export const updateTransactionSchema = z.object({
   categoryId: z.string().uuid().optional().nullable(),
+  nature: transactionNatureEnum.optional(),
+  linkedTransactionId: z.string().uuid().optional().nullable(),
+  reimbursementOverflowReason: z.string().min(5).max(500).optional(),
   amount: z.number().positive().optional(),
   description: z.string().min(1).optional(),
   notes: z.string().optional().nullable(),
@@ -61,10 +80,18 @@ export const listTransactionsSchema = z.object({
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
   type: transactionTypeEnum.optional(),
+  nature: transactionNatureEnum.optional(),
+  linkedTransactionId: z.string().uuid().optional(),
   status: z.enum(['DRAFT', 'CONFIRMED', 'DELETED']).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   isRecurring: z.coerce.boolean().optional(),
+  liquidated: z.coerce.boolean().optional(),
+})
+
+export const dashboardSummarySchema = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   liquidated: z.coerce.boolean().optional(),
 })
 
@@ -73,3 +100,4 @@ export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>
 export type BulkConfirmInput = z.infer<typeof bulkConfirmSchema>
 export type BulkSetCategoryInput = z.infer<typeof bulkSetCategorySchema>
 export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>
+export type DashboardSummaryInput = z.infer<typeof dashboardSummarySchema>

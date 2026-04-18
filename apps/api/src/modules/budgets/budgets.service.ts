@@ -6,22 +6,54 @@ async function getSpentAmount(
   categoryId: string,
   month: number,
   year: number,
-): Promise<number> {
-  const result = await prisma.transaction.aggregate({
-    where: {
-      familyId,
-      categoryId,
-      type: 'EXPENSE',
-      status: 'CONFIRMED',
-      recognition: 'OPERATIONAL',
-      date: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
+): Promise<{
+  grossExpense: number
+  expenseReimbursements: number
+  spentAmount: number
+}> {
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 1)
+
+  const [grossExpenseAgg, expenseReimbursementsAgg] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: {
+        familyId,
+        categoryId,
+        type: 'EXPENSE',
+        nature: 'NORMAL',
+        status: 'CONFIRMED',
+        recognition: 'OPERATIONAL',
+        date: { gte: start, lt: end },
       },
-    },
-    _sum: { amount: true },
-  })
-  return result._sum.amount?.toNumber() ?? 0
+      _sum: { amount: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        familyId,
+        type: 'INCOME',
+        nature: 'REIMBURSEMENT',
+        status: 'CONFIRMED',
+        recognition: 'OPERATIONAL',
+        date: { gte: start, lt: end },
+        linkedTransaction: {
+          categoryId,
+          type: 'EXPENSE',
+          nature: 'NORMAL',
+          status: { not: 'DELETED' },
+        },
+      },
+      _sum: { amount: true },
+    }),
+  ])
+
+  const grossExpense = grossExpenseAgg._sum.amount?.toNumber() ?? 0
+  const expenseReimbursements = expenseReimbursementsAgg._sum.amount?.toNumber() ?? 0
+
+  return {
+    grossExpense,
+    expenseReimbursements,
+    spentAmount: Math.max(grossExpense - expenseReimbursements, 0),
+  }
 }
 
 export async function listBudgets(familyId: string, query: ListBudgetsInput) {
@@ -37,13 +69,20 @@ export async function listBudgets(familyId: string, query: ListBudgetsInput) {
 
   return Promise.all(
     budgets.map(async (budget: (typeof budgets)[number]) => {
-      const spentAmount = await getSpentAmount(familyId, budget.categoryId, month, year)
+      const { spentAmount, grossExpense, expenseReimbursements } = await getSpentAmount(
+        familyId,
+        budget.categoryId,
+        month,
+        year,
+      )
       const limitAmount = budget.limitAmount.toNumber()
       const remainingAmount = Math.max(limitAmount - spentAmount, 0)
       const usagePercent = limitAmount > 0 ? Math.min((spentAmount / limitAmount) * 100, 100) : 0
       return {
         ...budget,
         limitAmount,
+        grossExpense,
+        expenseReimbursements,
         spentAmount,
         remainingAmount,
         usagePercent: Math.round(usagePercent * 100) / 100,
@@ -60,7 +99,7 @@ export async function getBudget(familyId: string, budgetId: string) {
   })
   if (!budget) throw Object.assign(new Error('Orçamento não encontrado'), { statusCode: 404 })
 
-  const spentAmount = await getSpentAmount(
+  const { spentAmount, grossExpense, expenseReimbursements } = await getSpentAmount(
     familyId,
     budget.categoryId,
     budget.referenceMonth,
@@ -73,6 +112,8 @@ export async function getBudget(familyId: string, budgetId: string) {
   return {
     ...budget,
     limitAmount,
+    grossExpense,
+    expenseReimbursements,
     spentAmount,
     remainingAmount,
     usagePercent: Math.round(usagePercent * 100) / 100,
