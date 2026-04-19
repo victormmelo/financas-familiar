@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -49,10 +49,32 @@ export function BudgetForm({ open, onClose, budget }: Props) {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: budget
-      ? { categoryId: budget.categoryId, referenceMonth: budget.referenceMonth, referenceYear: budget.referenceYear, limitAmount: budget.limitAmount }
-      : { referenceMonth: month, referenceYear: year },
+    defaultValues: {
+      categoryId: '',
+      referenceMonth: month,
+      referenceYear: year,
+      limitAmount: undefined as unknown as number,
+    },
   })
+
+  useEffect(() => {
+    if (!open) return
+    if (budget) {
+      reset({
+        categoryId: budget.categoryId,
+        referenceMonth: budget.referenceMonth,
+        referenceYear: budget.referenceYear,
+        limitAmount: budget.limitAmount,
+      })
+    } else {
+      reset({
+        categoryId: '',
+        referenceMonth: month,
+        referenceYear: year,
+        limitAmount: undefined as unknown as number,
+      })
+    }
+  }, [open, budget, month, year, reset])
 
   async function onSubmit(data: FormData) {
     try {

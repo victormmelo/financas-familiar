@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -26,6 +27,11 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
+function deadlineForDateInput(deadline?: string) {
+  if (!deadline) return ''
+  return deadline.length >= 10 ? deadline.slice(0, 10) : deadline
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -46,10 +52,35 @@ export function GoalForm({ open, onClose, goal }: Props) {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: goal
-      ? { name: goal.name, targetAmount: goal.targetAmount, currentAmount: goal.currentAmount, deadline: goal.deadline, accountId: goal.accountId }
-      : { currentAmount: 0 },
+    defaultValues: {
+      name: '',
+      targetAmount: undefined as unknown as number,
+      currentAmount: 0,
+      deadline: '',
+      accountId: '',
+    },
   })
+
+  useEffect(() => {
+    if (!open) return
+    if (goal) {
+      reset({
+        name: goal.name,
+        targetAmount: goal.targetAmount,
+        currentAmount: goal.currentAmount,
+        deadline: deadlineForDateInput(goal.deadline),
+        accountId: goal.accountId ?? '',
+      })
+    } else {
+      reset({
+        name: '',
+        targetAmount: undefined as unknown as number,
+        currentAmount: 0,
+        deadline: '',
+        accountId: '',
+      })
+    }
+  }, [open, goal, reset])
 
   async function onSubmit(data: FormData) {
     try {
