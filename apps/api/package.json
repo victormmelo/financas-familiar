@@ -2,6 +2,18 @@
   "name": "@financas/api",
   "version": "0.0.1",
   "private": true,
+  "exports": {
+    "./credit-cards/service": {
+      "types": "./dist/modules/credit-cards/credit-cards.service.d.ts",
+      "import": "./dist/modules/credit-cards/credit-cards.service.js",
+      "default": "./dist/modules/credit-cards/credit-cards.service.js"
+    },
+    "./credit-cards/schema": {
+      "types": "./dist/modules/credit-cards/credit-cards.schema.d.ts",
+      "import": "./dist/modules/credit-cards/credit-cards.schema.js",
+      "default": "./dist/modules/credit-cards/credit-cards.schema.js"
+    }
+  },
   "scripts": {
     "dev": "tsx watch src/app.ts",
     "build": "tsc -p tsconfig.build.json",

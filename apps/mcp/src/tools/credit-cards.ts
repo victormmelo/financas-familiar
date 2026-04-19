@@ -4,6 +4,22 @@ import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 import { withMcpToolOAuth } from '../mcp-scopes.js'
 import { dueInvoiceKeyForPurchaseDate, purchaseCycleBoundsUtc } from '@financas/shared-types'
+import { closeInvoiceManual, payInvoice } from '@financas/api/credit-cards/service'
+import { closeInvoiceManualSchema, payInvoiceSchema } from '@financas/api/credit-cards/schema'
+
+const payCreditCardInvoiceArgsSchema = z
+  .object({
+    creditCardId: z.string().min(1),
+    invoiceId: z.string().min(1),
+  })
+  .merge(payInvoiceSchema)
+
+const closeCreditCardInvoiceArgsSchema = z
+  .object({
+    creditCardId: z.string().min(1),
+    invoiceId: z.string().min(1),
+  })
+  .merge(closeInvoiceManualSchema)
 
 const creditCardToolDefinitionsBase = [
   {
@@ -31,6 +47,46 @@ const creditCardToolDefinitionsBase = [
         year: {
           type: 'number',
           description: 'Ano do vencimento. Padrão: ano atual',
+        },
+      },
+    },
+  },
+  {
+    name: 'pay_credit_card_invoice',
+    description:
+      'Registra o pagamento de uma fatura de cartão a partir de uma conta à ordem da família. Opcionalmente informe amount para pagamento parcial (até o saldo em aberto); sem amount, usa o valor total em aberto.',
+    inputSchema: {
+      type: 'object' as const,
+      required: ['creditCardId', 'invoiceId', 'accountId'],
+      properties: {
+        creditCardId: { type: 'string', description: 'ID do cartão de crédito' },
+        invoiceId: { type: 'string', description: 'ID da fatura (credit card invoice)' },
+        accountId: {
+          type: 'string',
+          description: 'ID da conta de onde sai o pagamento (conta âncora ou conta à ordem)',
+        },
+        amount: {
+          type: 'number',
+          description:
+            'Valor a pagar (opcional). Se omitido, paga o saldo total em aberto da fatura. Para parcial, não pode exceder o saldo.',
+        },
+      },
+    },
+  },
+  {
+    name: 'close_credit_card_invoice',
+    description:
+      'Fecha manualmente a fatura do cartão no sistema. Se o fechamento for antes da data oficial de fechamento do ciclo, informe reason (ao menos 5 caracteres); na janela oficial após essa data, reason é opcional.',
+    inputSchema: {
+      type: 'object' as const,
+      required: ['creditCardId', 'invoiceId'],
+      properties: {
+        creditCardId: { type: 'string', description: 'ID do cartão de crédito' },
+        invoiceId: { type: 'string', description: 'ID da fatura (credit card invoice)' },
+        reason: {
+          type: 'string',
+          description:
+            'Motivo do fechamento manual (5–500 caracteres). Obrigatório ao antecipar antes da data oficial de fechamento.',
         },
       },
     },
@@ -151,5 +207,19 @@ export function registerCreditCardHandlers(
       totalSpent: total,
       availableLimit: Number(card.limit) - total,
     }
+  })
+
+  toolHandlerMap.set('pay_credit_card_invoice', async (args) => {
+    const ctx = getContext()
+    const input = payCreditCardInvoiceArgsSchema.parse(args)
+    const { creditCardId, invoiceId, ...payBody } = input
+    return payInvoice(ctx.familyId, ctx.userId, creditCardId, invoiceId, payBody)
+  })
+
+  toolHandlerMap.set('close_credit_card_invoice', async (args) => {
+    const ctx = getContext()
+    const input = closeCreditCardInvoiceArgsSchema.parse(args)
+    const { creditCardId, invoiceId, ...closeBody } = input
+    return closeInvoiceManual(ctx.familyId, ctx.userId, creditCardId, invoiceId, closeBody)
   })
 }
