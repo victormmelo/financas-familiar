@@ -192,8 +192,49 @@ describe('reconcileInvoiceStatesForCard', () => {
     vi.mocked(netCardSpendingInPeriod).mockResolvedValueOnce(250)
     vi.mocked(prisma.creditCardInvoice.update).mockResolvedValue({} as never)
 
-    const lines = await reconcileInvoiceStatesForCard('card-1', 20, 10, new Date('2026-03-25T00:00:00Z'))
+    /* Antes do vencimento (10/03), mas já após o fechamento oficial — reaberta deve ficar OPEN, não CLOSED */
+    const lines = await reconcileInvoiceStatesForCard('card-1', 20, 10, new Date('2026-03-08T00:00:00Z'))
 
     expect(lines[0]?.status).toBe('OPEN')
+  })
+
+  it('fatura futura sem movimento nem pagamento fica OPEN, não PAGA, e não grava paidAt', async () => {
+    vi.mocked(prisma.creditCardInvoice.findMany).mockResolvedValue([
+      {
+        id: 'inv-jun',
+        creditCardId: 'card-1',
+        referenceMonth: 6,
+        referenceYear: 2026,
+        totalAmount: new Decimal(0),
+        status: 'OPEN',
+        paidAt: null,
+        paidFromAccountId: null,
+        manualClosedAt: null,
+        manualReopenedAt: null,
+        renegotiatedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ] as never)
+    vi.mocked(prisma.creditCardInvoiceSettlementInstallment.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.creditCardInvoiceSettlement.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([] as never)
+    vi.mocked(netCardSpendingInPeriod).mockResolvedValueOnce(0)
+    vi.mocked(prisma.creditCardInvoice.update).mockResolvedValue({} as never)
+
+    const lines = await reconcileInvoiceStatesForCard('card-1', 1, 10, new Date('2026-04-19T00:00:00Z'))
+
+    expect(lines[0]?.status).toBe('OPEN')
+    expect(lines[0]?.outstandingAmount).toBe(0)
+
+    expect(prisma.creditCardInvoice.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'inv-jun' },
+        data: expect.objectContaining({
+          status: 'OPEN',
+          paidAt: null,
+        }),
+      }),
+    )
   })
 })

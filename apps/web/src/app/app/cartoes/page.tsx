@@ -174,7 +174,6 @@ export default function CartoesPage() {
             <InvoiceList
               cardId={card.id}
               defaultAccountId={card.defaultAccountId}
-              closingDay={card.closingDay}
             />
           )}
         </CardContent>
@@ -286,11 +285,9 @@ type SettlementFormData = z.infer<typeof settlementFormSchema>
 function InvoiceList({
   cardId,
   defaultAccountId,
-  closingDay,
 }: {
   cardId: string
   defaultAccountId?: string | null
-  closingDay: number
 }) {
   const { data, isLoading } = useCreditCardInvoices(cardId)
   const payInvoice = usePayInvoice()
@@ -400,7 +397,7 @@ function InvoiceList({
 
   async function onCloseInvoiceConfirm() {
     if (!closeDialog) return
-    const requiresReason = isBeforeOfficialClosingDate(closeDialog, closingDay)
+    const requiresReason = isBeforeOfficialClosingUtc(closeDialog.officialClosingDate)
     if (requiresReason && closeReason.trim().length < 5) {
       toast('Informe um motivo (mínimo 5 caracteres) para fechar antes da data oficial.', 'error')
       return
@@ -449,7 +446,7 @@ function InvoiceList({
 
   const invoices = data?.data ?? []
   const invoicesEligibleForClose = invoices.filter(
-    (inv) => inv.status === 'OPEN' && hasReachedClosingDate(inv, closingDay),
+    (inv) => inv.status === 'OPEN' && hasPassedOfficialClosing(inv.officialClosingDate),
   )
 
   return (
@@ -486,7 +483,7 @@ function InvoiceList({
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-foreground">
-                    {getMonthName(inv.referenceMonth)} / {inv.referenceYear}
+                    Venc. {getMonthName(inv.referenceMonth)} / {inv.referenceYear}
                   </p>
                   <InvoiceStatusBadge status={inv.status} />
                 </div>
@@ -596,7 +593,7 @@ function InvoiceList({
           <DialogBody className="space-y-4">
             {payDialog && (
               <div className="rounded-sm border border-border bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">Fatura</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Vencimento</p>
                 <p className="text-sm font-medium text-foreground">
                   {getMonthName(payDialog.referenceMonth)} / {payDialog.referenceYear}
                 </p>
@@ -787,19 +784,24 @@ function InvoiceList({
           <DialogBody className="space-y-4">
             {closeDialog && (
               <div className="rounded-sm border border-border bg-muted/50 p-3">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">Fatura</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Vencimento</p>
                 <p className="text-sm font-medium text-foreground">
                   {getMonthName(closeDialog.referenceMonth)} / {closeDialog.referenceYear}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {isBeforeOfficialClosingDate(closeDialog, closingDay)
+                  {isBeforeOfficialClosingUtc(closeDialog.officialClosingDate)
                     ? 'Fechamento antecipado: motivo obrigatório.'
                     : 'Fechamento na janela oficial.'}
                 </p>
               </div>
             )}
             <div className="space-y-1.5">
-              <Label>Motivo {isBeforeOfficialClosingDate(closeDialog, closingDay) ? '(obrigatório)' : '(opcional)'}</Label>
+              <Label>
+                Motivo{' '}
+                {closeDialog && isBeforeOfficialClosingUtc(closeDialog.officialClosingDate)
+                  ? '(obrigatório)'
+                  : '(opcional)'}
+              </Label>
               <textarea
                 className="min-h-24 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm text-foreground outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 value={closeReason}
@@ -882,7 +884,7 @@ function InvoiceDetailDialog({
       <DialogHeader
         title={
           invoice
-            ? `Fatura ${getMonthName(invoice.referenceMonth)} / ${invoice.referenceYear}`
+            ? `Fatura · venc. ${getMonthName(invoice.referenceMonth)} / ${invoice.referenceYear}`
             : 'Detalhes da fatura'
         }
         onClose={onClose}
@@ -1067,17 +1069,18 @@ function canManageFinancialActions(invoice: CreditCardInvoice): boolean {
   return invoice.status === 'OPEN' || invoice.status === 'PARTIAL' || invoice.status === 'OVERDUE'
 }
 
-function hasReachedClosingDate(invoice: CreditCardInvoice, closingDay: number): boolean {
-  const now = new Date()
-  const closingDate = new Date(Date.UTC(invoice.referenceYear, invoice.referenceMonth - 1, closingDay))
-  return now >= closingDate
+function utcDayMs(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
 }
 
-function isBeforeOfficialClosingDate(invoice: CreditCardInvoice | null, closingDay: number): boolean {
-  if (!invoice) return false
-  const now = new Date()
-  const closingDate = new Date(Date.UTC(invoice.referenceYear, invoice.referenceMonth - 1, closingDay))
-  return now < closingDate
+function hasPassedOfficialClosing(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  return utcDayMs(new Date()) >= utcDayMs(new Date(iso))
+}
+
+function isBeforeOfficialClosingUtc(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  return utcDayMs(new Date()) < utcDayMs(new Date(iso))
 }
 
 function formatInvoiceEventLabel(action: string): string {

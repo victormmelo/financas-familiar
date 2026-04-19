@@ -374,6 +374,7 @@ export interface CreditCardInvoice {
   totalAmount: number
   status: InvoiceStatus
   dueDate: string
+  officialClosingDate?: string | null
   paidAt: string | null
   paidFromAccountId: string | null
   manualClosedAt: string | null
@@ -740,6 +741,19 @@ export {
   wireGoalDeadline,
   wireTransactionDate,
 } from './plain-date'
+
+export {
+  calculateDueDateIso,
+  clampDayInMonthUtc,
+  closingInstantBeforeDue,
+  daysInMonthUtc,
+  dueDateUtc,
+  dueInvoiceKeyForPurchaseDate,
+  purchaseCycleBoundsUtc,
+  purchaseCycleStartExclusiveUtc,
+  shiftCalendarMonthUtc,
+  type PurchaseCycleBounds,
+} from './credit-card-invoice-dates'
 
 // ─── API Error ────────────────────────────────────────────────────────────────
 

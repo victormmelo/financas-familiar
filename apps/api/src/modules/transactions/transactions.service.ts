@@ -16,6 +16,7 @@ import {
   reconcileInvoiceStatesForCard,
   ensureInvoiceRowsForCreditCardFromActivity,
 } from '../../lib/credit-card-invoices-sync.js'
+import { dueInvoiceKeyForPurchaseDate } from '@financas/shared-types'
 import { canEditFinancialForInvoice } from '../credit-cards/invoice-lifecycle.js'
 import { createInvoiceEvent } from '../credit-cards/credit-cards.service.js'
 
@@ -261,6 +262,36 @@ async function resolveTransactionAccountId(
   return resolved
 }
 
+/** Resolve `creditCardInvoiceId` pela data da compra e pelo ciclo de vencimento do cartão. */
+async function resolveCreditCardInvoiceIdForPurchaseDate(
+  familyId: string,
+  creditCardId: string,
+  date: Date,
+): Promise<string | null> {
+  const card = await prisma.creditCard.findFirst({
+    where: { id: creditCardId, familyId },
+    select: { id: true, closingDay: true, dueDay: true },
+  })
+  if (!card) return null
+
+  await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay, card.dueDay)
+
+  try {
+    const key = dueInvoiceKeyForPurchaseDate(date, card.closingDay, card.dueDay)
+    const inv = await prisma.creditCardInvoice.findFirst({
+      where: {
+        creditCardId: card.id,
+        referenceMonth: key.referenceMonth,
+        referenceYear: key.referenceYear,
+      },
+      select: { id: true },
+    })
+    return inv?.id ?? null
+  } catch {
+    return null
+  }
+}
+
 async function resolveInvoiceContextForTransaction(params: {
   familyId: string
   creditCardId: string
@@ -275,19 +306,29 @@ async function resolveInvoiceContextForTransaction(params: {
   })
   if (!card) return null
 
-  const invoice =
-    (creditCardInvoiceId
+  await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay, card.dueDay)
+
+  let invoice =
+    creditCardInvoiceId !== null && creditCardInvoiceId !== ''
       ? await prisma.creditCardInvoice.findFirst({
           where: { id: creditCardInvoiceId, creditCardId },
         })
-      : null) ??
-    (await prisma.creditCardInvoice.findFirst({
-      where: {
-        creditCardId,
-        referenceMonth: date.getUTCMonth() + 1,
-        referenceYear: date.getUTCFullYear(),
-      },
-    }))
+      : null
+
+  if (!invoice) {
+    try {
+      const key = dueInvoiceKeyForPurchaseDate(date, card.closingDay, card.dueDay)
+      invoice = await prisma.creditCardInvoice.findFirst({
+        where: {
+          creditCardId,
+          referenceMonth: key.referenceMonth,
+          referenceYear: key.referenceYear,
+        },
+      })
+    } catch {
+      invoice = null
+    }
+  }
 
   if (!invoice) return null
 
@@ -780,6 +821,12 @@ export async function createTransaction(familyId: string, userId: string, input:
 
   const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
 
+  const txDate = parsePlainDate(input.date)
+  const resolvedInvoiceId =
+    input.creditCardId !== undefined && input.creditCardId !== null
+      ? await resolveCreditCardInvoiceIdForPurchaseDate(familyId, input.creditCardId, txDate)
+      : null
+
   const transaction = await prisma.transaction.create({
     data: {
       familyId,
@@ -794,11 +841,12 @@ export async function createTransaction(familyId: string, userId: string, input:
       amount: input.amount,
       description: input.description,
       notes: input.notes,
-      date: parsePlainDate(input.date),
+      date: txDate,
       source: input.source,
       isRecurring: input.isRecurring,
       rrule: input.rrule,
       creditCardId: input.creditCardId ?? null,
+      creditCardInvoiceId: resolvedInvoiceId,
       liquidated: input.liquidated ?? false,
     },
     include: {
@@ -870,12 +918,17 @@ export async function createInstallmentTransaction(
   const baseDate = parsePlainDate(input.date)
   const { status, confirmedAt } = statusForNewTransaction(input.confirmed)
 
-  const transactions = await prisma.$transaction(
-    Array.from({ length: input.installmentCount }, (_, i) => {
+  const transactions = await prisma.$transaction(async () => {
+    const rows = []
+    for (let i = 0; i < input.installmentCount; i++) {
       const installmentDate = new Date(baseDate)
       installmentDate.setMonth(installmentDate.getMonth() + i)
+      const invId =
+        input.creditCardId !== undefined && input.creditCardId !== null
+          ? await resolveCreditCardInvoiceIdForPurchaseDate(familyId, input.creditCardId, installmentDate)
+          : null
 
-      return prisma.transaction.create({
+      const row = await prisma.transaction.create({
         data: {
           familyId,
           accountId,
@@ -892,6 +945,7 @@ export async function createInstallmentTransaction(
           date: installmentDate,
           source: input.source ?? 'MANUAL',
           creditCardId: input.creditCardId,
+          creditCardInvoiceId: invId,
           installmentGroupId,
           installmentIndex: i + 1,
           installmentCount: input.installmentCount,
@@ -904,8 +958,10 @@ export async function createInstallmentTransaction(
           creditCard: { select: { id: true, name: true } },
         },
       })
-    }),
-  )
+      rows.push(row)
+    }
+    return rows
+  })
 
   return {
     installmentGroupId,
@@ -1193,6 +1249,12 @@ export async function updateTransaction(
     }
   }
 
+  const nextDate = input.date !== undefined ? parsePlainDate(input.date) : transaction.date
+  const nextCreditCardInvoiceId =
+    transaction.creditCardId && input.date !== undefined
+      ? await resolveCreditCardInvoiceIdForPurchaseDate(familyId, transaction.creditCardId, nextDate)
+      : undefined
+
   const updated = await prisma.transaction.update({
     where: { id: transactionId },
     data: {
@@ -1209,6 +1271,7 @@ export async function updateTransaction(
       ...(input.date !== undefined && { date: parsePlainDate(input.date) }),
       ...(input.liquidated !== undefined && { liquidated: input.liquidated }),
       ...(input.accountId !== undefined && { accountId: input.accountId }),
+      ...(nextCreditCardInvoiceId !== undefined ? { creditCardInvoiceId: nextCreditCardInvoiceId } : {}),
     },
     include: {
       account: { select: { id: true, name: true } },

@@ -3,11 +3,13 @@ import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 import { withMcpToolOAuth } from '../mcp-scopes.js'
+import { dueInvoiceKeyForPurchaseDate, purchaseCycleBoundsUtc } from '@financas/shared-types'
 
 const creditCardToolDefinitionsBase = [
   {
     name: 'list_credit_cards',
-    description: 'Lista os cartões de crédito da família com status da fatura do mês atual.',
+    description:
+      'Lista os cartões de crédito da família com status da fatura cujo vencimento cai no ciclo atual (mês de vencimento).',
     inputSchema: {
       type: 'object' as const,
       properties: {},
@@ -16,7 +18,7 @@ const creditCardToolDefinitionsBase = [
   {
     name: 'get_invoice',
     description:
-      'Retorna a fatura de um cartão de crédito em um mês/ano específico, com todas as transações.',
+      'Retorna a fatura de um cartão por mês/ano de VENCIMENTO (como no extrato), com lançamentos do ciclo dessa fatura.',
     inputSchema: {
       type: 'object' as const,
       required: ['creditCardId'],
@@ -24,11 +26,11 @@ const creditCardToolDefinitionsBase = [
         creditCardId: { type: 'string', description: 'ID do cartão de crédito' },
         month: {
           type: 'number',
-          description: 'Mês (1-12). Padrão: mês atual',
+          description: 'Mês de vencimento da fatura (1-12). Padrão: mês atual',
         },
         year: {
           type: 'number',
-          description: 'Ano. Padrão: ano atual',
+          description: 'Ano do vencimento. Padrão: ano atual',
         },
       },
     },
@@ -43,40 +45,48 @@ export function registerCreditCardHandlers(
 ) {
   toolHandlerMap.set('list_credit_cards', async (_args) => {
     const { familyId } = getContext()
-    const now = new Date()
-    const month = now.getMonth() + 1
-    const year = now.getFullYear()
-
     const cards = await prisma.creditCard.findMany({
       where: { familyId, isActive: true },
       include: {
         defaultAccount: { select: { id: true, name: true } },
         invoices: {
-          where: { referenceMonth: month, referenceYear: year },
-          select: { id: true, totalAmount: true, status: true, paidAt: true },
+          select: { id: true, referenceMonth: true, referenceYear: true, totalAmount: true, status: true, paidAt: true },
         },
       },
       orderBy: { name: 'asc' },
     })
 
+    const now = new Date()
+
     return {
-      creditCards: cards.map((card: (typeof cards)[number]) => ({
-        id: card.id,
-        name: card.name,
-        limit: Number(card.limit),
-        closingDay: card.closingDay,
-        dueDay: card.dueDay,
-        defaultAccountId: card.defaultAccountId,
-        defaultAccount: card.defaultAccount,
-        color: card.color,
-        icon: card.icon,
-        currentInvoice: card.invoices[0]
-          ? {
-              ...card.invoices[0],
-              totalAmount: Number(card.invoices[0].totalAmount),
-            }
-          : null,
-      })),
+      creditCards: cards.map((card: (typeof cards)[number]) => {
+        let dueKey: { referenceMonth: number; referenceYear: number }
+        try {
+          dueKey = dueInvoiceKeyForPurchaseDate(now, card.closingDay, card.dueDay)
+        } catch {
+          dueKey = { referenceMonth: now.getUTCMonth() + 1, referenceYear: now.getUTCFullYear() }
+        }
+        const currentInvoice = card.invoices.find(
+          (inv) => inv.referenceMonth === dueKey.referenceMonth && inv.referenceYear === dueKey.referenceYear,
+        )
+        return {
+          id: card.id,
+          name: card.name,
+          limit: Number(card.limit),
+          closingDay: card.closingDay,
+          dueDay: card.dueDay,
+          defaultAccountId: card.defaultAccountId,
+          defaultAccount: card.defaultAccount,
+          color: card.color,
+          icon: card.icon,
+          currentInvoice: currentInvoice
+            ? {
+                ...currentInvoice,
+                totalAmount: Number(currentInvoice.totalAmount),
+              }
+            : null,
+        }
+      }),
     }
   })
 
@@ -104,15 +114,12 @@ export function registerCreditCardHandlers(
       },
     })
 
-    // Busca transações do cartão no período da fatura
-    const startDate = new Date(input.year, input.month - 1, card.closingDay + 1)
-    startDate.setMonth(startDate.getMonth() - 1)
-    const endDate = new Date(input.year, input.month - 1, card.closingDay)
+    const bounds = purchaseCycleBoundsUtc(input.year, input.month, card.closingDay, card.dueDay)
 
     const transactions = await prisma.transaction.findMany({
       where: {
         creditCardId: input.creditCardId,
-        date: { gte: startDate, lte: endDate },
+        date: { gt: bounds.gt, lte: bounds.lte },
         status: { not: 'DELETED' },
       },
       include: {
@@ -134,7 +141,10 @@ export function registerCreditCardHandlers(
       invoice: invoice
         ? { ...invoice, totalAmount: Number(invoice.totalAmount) }
         : { status: 'OPEN', totalAmount: total },
-      period: { from: startDate.toISOString().slice(0, 10), to: endDate.toISOString().slice(0, 10) },
+      period: {
+        purchaseCycleFromExclusive: bounds.gt.toISOString().slice(0, 10),
+        purchaseCycleToInclusive: bounds.lte.toISOString().slice(0, 10),
+      },
       transactions: transactions.map((t: (typeof transactions)[number]) =>
         wireTransactionDate({ ...t, amount: Number(t.amount) }),
       ),

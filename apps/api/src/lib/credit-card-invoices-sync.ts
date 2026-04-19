@@ -1,32 +1,13 @@
 import { prisma } from './prisma.js'
 import { netCardSpendingInPeriod } from './credit-card-spending.js'
+import {
+  dueDateUtc,
+  dueInvoiceKeyForPurchaseDate,
+  purchaseCycleBoundsUtc,
+  shiftCalendarMonthUtc,
+} from '@financas/shared-types'
 
-/** Desloca mês civil (1–12) no calendário UTC. */
-export function shiftCalendarMonthUtc(
-  year: number,
-  month1to12: number,
-  deltaMonths: number,
-): { year: number; month: number } {
-  const d = new Date(Date.UTC(year, month1to12 - 1 + deltaMonths, 1))
-  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 }
-}
-
-async function calculateInvoiceTotal(cardId: string, month: number, year: number): Promise<number> {
-  return netCardSpendingInPeriod(cardId, {
-    gte: new Date(year, month - 1, 1),
-    lt: new Date(year, month, 1),
-  })
-}
-
-function closingInstantUtc(referenceYear: number, referenceMonth: number, closingDay: number): Date {
-  return new Date(Date.UTC(referenceYear, referenceMonth - 1, closingDay))
-}
-
-function dueInstantUtc(referenceYear: number, referenceMonth: number, dueDay: number): Date {
-  const dueMonth = referenceMonth === 12 ? 1 : referenceMonth + 1
-  const dueYear = referenceMonth === 12 ? referenceYear + 1 : referenceYear
-  return new Date(Date.UTC(dueYear, dueMonth - 1, dueDay))
-}
+export { shiftCalendarMonthUtc } from '@financas/shared-types'
 
 function monthKey(year: number, month: number): string {
   return `${year}-${month}`
@@ -36,6 +17,10 @@ export interface InvoiceLedgerLine {
   invoiceId: string
   referenceMonth: number
   referenceYear: number
+  /** Fechamento oficial (último closingDay antes do vencimento), UTC */
+  officialClosingDate: string
+  /** Vencimento (reference = mês de vencimento), UTC */
+  dueDate: string
   cycleAmount: number
   carriedAmount: number
   negotiatedInstallmentAmount: number
@@ -44,6 +29,17 @@ export interface InvoiceLedgerLine {
   outstandingAmount: number
   status: 'OPEN' | 'CLOSED' | 'PARTIAL' | 'OVERDUE' | 'RENEGOTIATED' | 'PAID'
   currentPaidAt: Date | null
+}
+
+async function calculateInvoiceTotal(
+  cardId: string,
+  referenceMonth: number,
+  referenceYear: number,
+  closingDay: number,
+  dueDay: number,
+): Promise<number> {
+  const bounds = purchaseCycleBoundsUtc(referenceYear, referenceMonth, closingDay, dueDay)
+  return netCardSpendingInPeriod(cardId, { gt: bounds.gt, lte: bounds.lte })
 }
 
 async function ensureInvoiceRowsForMonthKeys(cardId: string, keys: Set<string>) {
@@ -106,7 +102,6 @@ async function collectInvoicePayments(cardId: string): Promise<Map<string, numbe
   const rows = await prisma.transaction.groupBy({
     by: ['creditCardInvoiceId'],
     where: {
-      /** Pagamentos saem da conta corrente: podem não ter `creditCardId` no lançamento; amarramos pela fatura. */
       creditCardInvoice: { creditCardId: cardId },
       creditCardInvoiceId: { not: null },
       recognition: 'INVOICE_PAYMENT',
@@ -150,14 +145,22 @@ export async function reconcileInvoiceStatesForCard(
   const lines: InvoiceLedgerLine[] = []
 
   for (const invoice of invoices) {
-    const cycleAmount = await calculateInvoiceTotal(cardId, invoice.referenceMonth, invoice.referenceYear)
+    const cycleAmount = await calculateInvoiceTotal(
+      cardId,
+      invoice.referenceMonth,
+      invoice.referenceYear,
+      closingDay,
+      dueDay,
+    )
     const installmentAmount =
       installmentsByMonth.get(monthKey(invoice.referenceYear, invoice.referenceMonth)) ?? 0
     const paymentAmount = paymentsByInvoice.get(invoice.id) ?? 0
     const totalAmount = carriedFromPrevious + cycleAmount + installmentAmount
     const renegotiated = settlementInvoiceIds.has(invoice.id) || invoice.status === 'RENEGOTIATED'
-    const dueDate = dueInstantUtc(invoice.referenceYear, invoice.referenceMonth, dueDay)
-    const closingDate = closingInstantUtc(invoice.referenceYear, invoice.referenceMonth, closingDay)
+
+    const bounds = purchaseCycleBoundsUtc(invoice.referenceYear, invoice.referenceMonth, closingDay, dueDay)
+    const dueDate = dueDateUtc(invoice.referenceYear, invoice.referenceMonth, dueDay)
+    const closingDate = new Date(bounds.lte.getTime())
     const manuallyReopened =
       !!invoice.manualReopenedAt &&
       (!invoice.manualClosedAt || invoice.manualReopenedAt > invoice.manualClosedAt)
@@ -173,16 +176,25 @@ export async function reconcileInvoiceStatesForCard(
       outstandingAmount = Math.max(0, totalAmount - paymentAmount)
       const shouldCarryForward = outstandingAmount > 0 && today > dueDate
       carriedFromPrevious = shouldCarryForward ? outstandingAmount : 0
+
+      const closedByRule =
+        (!!invoice.manualClosedAt && !manuallyReopened) ||
+        (today >= closingDate && !manuallyReopened)
+
       if (outstandingAmount <= 0) {
-        status = 'PAID'
+        /** PAID só com pagamento registrado ou após vencimento com saldo zero (evita fatura futura vazia como "paga"). */
+        if (paymentAmount > 0 || today > dueDate) {
+          status = 'PAID'
+        } else if (closedByRule) {
+          status = 'CLOSED'
+        } else {
+          status = 'OPEN'
+        }
       } else if (today > dueDate) {
         status = 'OVERDUE'
       } else if (paymentAmount > 0) {
         status = 'PARTIAL'
-      } else if (
-        (invoice.manualClosedAt && !manuallyReopened) ||
-        (today >= closingDate && !manuallyReopened)
-      ) {
+      } else if (closedByRule) {
         status = 'CLOSED'
       } else {
         status = 'OPEN'
@@ -193,6 +205,8 @@ export async function reconcileInvoiceStatesForCard(
       invoiceId: invoice.id,
       referenceMonth: invoice.referenceMonth,
       referenceYear: invoice.referenceYear,
+      officialClosingDate: closingDate.toISOString(),
+      dueDate: dueDate.toISOString(),
       cycleAmount,
       carriedAmount: totalAmount - cycleAmount - installmentAmount,
       negotiatedInstallmentAmount: installmentAmount,
@@ -205,26 +219,33 @@ export async function reconcileInvoiceStatesForCard(
   }
 
   await Promise.all(
-    lines.map((line) =>
-      prisma.creditCardInvoice.update({
+    lines.map((line) => {
+      const paidAt =
+        line.status !== 'PAID'
+          ? null
+          : line.paymentAmount > 0
+            ? line.currentPaidAt ?? new Date()
+            : null
+
+      return prisma.creditCardInvoice.update({
         where: { id: line.invoiceId },
         data: {
           totalAmount: line.totalAmount,
           status: line.status,
+          paidAt,
           ...(line.status === 'RENEGOTIATED'
             ? { renegotiatedAt: new Date() }
             : { renegotiatedAt: null }),
-          ...(line.status === 'PAID' && !line.currentPaidAt ? { paidAt: new Date() } : {}),
         },
-      }),
-    ),
+      })
+    }),
   )
 
   return lines
 }
 
 /**
- * Garante linhas de fatura para meses com movimentação no cartão + mês atual e 2 seguintes,
+ * Garante linhas de fatura para ciclos com movimentação + janela de vencimentos,
  * depois reconcilia status/valores (usado na listagem para dados aparecerem sem esperar o job).
  */
 export async function ensureInvoiceRowsForCreditCardFromActivity(
@@ -247,7 +268,12 @@ export async function ensureInvoiceRowsForCreditCardFromActivity(
   const keys = new Set<string>()
   for (const t of txs) {
     const d = new Date(t.date)
-    keys.add(monthKey(d.getFullYear(), d.getMonth() + 1))
+    try {
+      const key = dueInvoiceKeyForPurchaseDate(d, closingDay, dueDay)
+      keys.add(monthKey(key.referenceYear, key.referenceMonth))
+    } catch {
+      /* fora da janela — ignorar */
+    }
   }
   for (const installment of installments) {
     keys.add(monthKey(installment.dueReferenceYear, installment.dueReferenceMonth))

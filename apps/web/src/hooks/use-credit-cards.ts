@@ -34,6 +34,7 @@ export interface CreditCardInvoice {
   totalAmount: number
   status: 'OPEN' | 'CLOSED' | 'PARTIAL' | 'OVERDUE' | 'RENEGOTIATED' | 'PAID'
   dueDate: string
+  officialClosingDate?: string | null
   paidAt?: string | null
   paidFromAccountId?: string | null
   manualClosedAt?: string | null

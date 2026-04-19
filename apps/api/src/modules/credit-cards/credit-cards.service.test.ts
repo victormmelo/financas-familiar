@@ -35,7 +35,6 @@ vi.mock('../../lib/prisma.js', () => ({
 vi.mock('../../lib/credit-card-invoices-sync.js', () => ({
   ensureInvoiceRowsForCreditCardFromActivity: vi.fn(),
   reconcileInvoiceStatesForCard: vi.fn(),
-  shiftCalendarMonthUtc: vi.fn(),
 }))
 
 import { prisma } from '../../lib/prisma.js'
@@ -59,6 +58,8 @@ beforeEach(() => {
       invoiceId: 'inv-1',
       referenceMonth: 1,
       referenceYear: 2026,
+      officialClosingDate: new Date('2026-01-10T00:00:00.000Z').toISOString(),
+      dueDate: new Date('2026-01-20T00:00:00.000Z').toISOString(),
       cycleAmount: 100,
       carriedAmount: 0,
       negotiatedInstallmentAmount: 0,
@@ -126,6 +127,8 @@ describe('reopenInvoice', () => {
         invoiceId: 'inv-1',
         referenceMonth: 1,
         referenceYear: 2026,
+        officialClosingDate: new Date('2026-01-10T00:00:00.000Z').toISOString(),
+        dueDate: new Date('2026-01-20T00:00:00.000Z').toISOString(),
         cycleAmount: 100,
         carriedAmount: 0,
         negotiatedInstallmentAmount: 20,

@@ -4,8 +4,14 @@ import { netCardSpendingInPeriod } from '../../lib/credit-card-spending.js'
 import {
   ensureInvoiceRowsForCreditCardFromActivity,
   reconcileInvoiceStatesForCard,
-  shiftCalendarMonthUtc,
 } from '../../lib/credit-card-invoices-sync.js'
+import {
+  calculateDueDateIso,
+  dueDateUtc,
+  dueInvoiceKeyForPurchaseDate,
+  purchaseCycleBoundsUtc,
+  shiftCalendarMonthUtc,
+} from '@financas/shared-types'
 import type { Prisma } from '@prisma/client'
 import type {
   CreateCreditCardInput,
@@ -18,34 +24,43 @@ import type {
 } from './credit-cards.schema.js'
 import { canReopenInvoice } from './invoice-lifecycle.js'
 
-/** Calcula a data de vencimento de uma fatura com base no cartão. */
-function calculateDueDate(referenceMonth: number, referenceYear: number, dueDay: number): string {
-  // Vencimento é no mês seguinte ao fechamento
-  const dueMonth = referenceMonth === 12 ? 1 : referenceMonth + 1
-  const dueYear = referenceMonth === 12 ? referenceYear + 1 : referenceYear
-  return `${dueYear}-${String(dueMonth).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`
-}
-
-async function getInvoiceSpending(cardId: string, month: number, year: number): Promise<number> {
-  return netCardSpendingInPeriod(cardId, {
-    gte: new Date(year, month - 1, 1),
-    lt: new Date(year, month, 1),
-  })
-}
-
-function monthDateRange(referenceYear: number, referenceMonth: number): { gte: Date; lt: Date } {
-  return {
-    gte: new Date(referenceYear, referenceMonth - 1, 1),
-    lt: new Date(referenceYear, referenceMonth, 1),
+/** Gasto líquido no ciclo aberto atual (referência = mês de vencimento). */
+async function getCurrentCycleNetSpending(
+  cardId: string,
+  closingDay: number,
+  dueDay: number,
+): Promise<number> {
+  try {
+    const key = dueInvoiceKeyForPurchaseDate(new Date(), closingDay, dueDay)
+    const bounds = purchaseCycleBoundsUtc(key.referenceYear, key.referenceMonth, closingDay, dueDay)
+    return netCardSpendingInPeriod(cardId, { gt: bounds.gt, lte: bounds.lte })
+  } catch {
+    return 0
   }
 }
 
-function getDueDateDate(referenceMonth: number, referenceYear: number, dueDay: number): Date {
-  return new Date(`${calculateDueDate(referenceMonth, referenceYear, dueDay)}T00:00:00.000Z`)
+function invoicePurchaseDateFilter(
+  referenceYear: number,
+  referenceMonth: number,
+  closingDay: number,
+  dueDay: number,
+): { gt: Date; lte: Date } {
+  const bounds = purchaseCycleBoundsUtc(referenceYear, referenceMonth, closingDay, dueDay)
+  return { gt: bounds.gt, lte: bounds.lte }
 }
 
-function getClosingDateDate(referenceMonth: number, referenceYear: number, closingDay: number): Date {
-  return new Date(Date.UTC(referenceYear, referenceMonth - 1, closingDay))
+function getDueDateDate(referenceMonth: number, referenceYear: number, dueDay: number): Date {
+  return dueDateUtc(referenceYear, referenceMonth, dueDay)
+}
+
+function getOfficialClosingDate(
+  referenceMonth: number,
+  referenceYear: number,
+  closingDay: number,
+  dueDay: number,
+): Date {
+  const bounds = purchaseCycleBoundsUtc(referenceYear, referenceMonth, closingDay, dueDay)
+  return new Date(bounds.lte.getTime())
 }
 
 type InvoiceEventAction =
@@ -97,13 +112,9 @@ export async function listCreditCards(familyId: string) {
     include: cardDefaultAccountInclude,
   })
 
-  const now = new Date()
-  const month = now.getMonth() + 1
-  const year = now.getFullYear()
-
   return Promise.all(
     cards.map(async (card: (typeof cards)[number]) => {
-      const currentSpending = await getInvoiceSpending(card.id, month, year)
+      const currentSpending = await getCurrentCycleNetSpending(card.id, card.closingDay, card.dueDay)
       return { ...card, currentSpending }
     }),
   )
@@ -116,8 +127,7 @@ export async function getCreditCard(familyId: string, cardId: string) {
   })
   if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
 
-  const now = new Date()
-  const currentSpending = await getInvoiceSpending(card.id, now.getMonth() + 1, now.getFullYear())
+  const currentSpending = await getCurrentCycleNetSpending(card.id, card.closingDay, card.dueDay)
   return { ...card, currentSpending }
 }
 
@@ -217,14 +227,18 @@ export async function listInvoices(
   ])
 
   return {
-    data: invoices.map((inv) => ({
-      ...inv,
-      dueDate: calculateDueDate(inv.referenceMonth, inv.referenceYear, card.dueDay),
-      carriedAmount: ledgerByInvoiceId.get(inv.id)?.carriedAmount ?? 0,
-      negotiatedInstallmentAmount: ledgerByInvoiceId.get(inv.id)?.negotiatedInstallmentAmount ?? 0,
-      paymentAmount: ledgerByInvoiceId.get(inv.id)?.paymentAmount ?? 0,
-      outstandingAmount: ledgerByInvoiceId.get(inv.id)?.outstandingAmount ?? 0,
-    })),
+    data: invoices.map((inv) => {
+      const line = ledgerByInvoiceId.get(inv.id)
+      return {
+        ...inv,
+        dueDate: calculateDueDateIso(inv.referenceMonth, inv.referenceYear, card.dueDay),
+        officialClosingDate: line?.officialClosingDate ?? null,
+        carriedAmount: line?.carriedAmount ?? 0,
+        negotiatedInstallmentAmount: line?.negotiatedInstallmentAmount ?? 0,
+        paymentAmount: line?.paymentAmount ?? 0,
+        outstandingAmount: line?.outstandingAmount ?? 0,
+      }
+    }),
     pagination: { page, limit, total, pages: Math.ceil(total / limit) },
   }
 }
@@ -267,7 +281,12 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
       where: {
         creditCardId: cardId,
         status: { not: 'DELETED' },
-        date: monthDateRange(line.referenceYear, line.referenceMonth),
+        date: invoicePurchaseDateFilter(
+          line.referenceYear,
+          line.referenceMonth,
+          card.closingDay,
+          card.dueDay,
+        ),
       },
       include: {
         category: { select: { id: true, name: true, type: true } },
@@ -292,7 +311,7 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
   return {
     invoice: {
       ...invoice,
-      dueDate: calculateDueDate(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
+      dueDate: calculateDueDateIso(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
       transactions: transactions.map(wireTransactionDate),
     },
     breakdown: {
@@ -323,10 +342,12 @@ export async function getInvoice(familyId: string, cardId: string, invoiceId: st
     where: {
       creditCardId: cardId,
       status: { not: 'DELETED' },
-      date: {
-        gte: new Date(invoice.referenceYear, invoice.referenceMonth - 1, 1),
-        lt: new Date(invoice.referenceYear, invoice.referenceMonth, 1),
-      },
+      date: invoicePurchaseDateFilter(
+        invoice.referenceYear,
+        invoice.referenceMonth,
+        card.closingDay,
+        card.dueDay,
+      ),
     },
     include: {
       category: { select: { id: true, name: true, type: true } },
@@ -336,7 +357,7 @@ export async function getInvoice(familyId: string, cardId: string, invoiceId: st
 
   return {
     ...invoice,
-    dueDate: calculateDueDate(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
+    dueDate: calculateDueDateIso(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
     carriedAmount: line.carriedAmount,
     negotiatedInstallmentAmount: line.negotiatedInstallmentAmount,
     paymentAmount: line.paymentAmount,
@@ -350,8 +371,12 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
   if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
 
   const now = new Date()
-  const month = now.getMonth() + 1
-  const year = now.getFullYear()
+  let dueKey: { referenceMonth: number; referenceYear: number }
+  try {
+    dueKey = dueInvoiceKeyForPurchaseDate(now, card.closingDay, card.dueDay)
+  } catch {
+    dueKey = { referenceMonth: now.getUTCMonth() + 1, referenceYear: now.getUTCFullYear() }
+  }
 
   await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay, card.dueDay)
   const ledger = await reconcileInvoiceStatesForCard(card.id, card.closingDay, card.dueDay)
@@ -360,14 +385,14 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
     where: {
       creditCardId_referenceMonth_referenceYear: {
         creditCardId: cardId,
-        referenceMonth: month,
-        referenceYear: year,
+        referenceMonth: dueKey.referenceMonth,
+        referenceYear: dueKey.referenceYear,
       },
     },
     create: {
       creditCardId: cardId,
-      referenceMonth: month,
-      referenceYear: year,
+      referenceMonth: dueKey.referenceMonth,
+      referenceYear: dueKey.referenceYear,
       totalAmount: 0,
     },
     update: {},
@@ -380,10 +405,12 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
     where: {
       creditCardId: cardId,
       status: { not: 'DELETED' },
-      date: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      },
+      date: invoicePurchaseDateFilter(
+        dueKey.referenceYear,
+        dueKey.referenceMonth,
+        card.closingDay,
+        card.dueDay,
+      ),
     },
     include: {
       category: { select: { id: true, name: true, type: true } },
@@ -393,7 +420,7 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
 
   return {
     ...invoice,
-    dueDate: calculateDueDate(month, year, card.dueDay),
+    dueDate: calculateDueDateIso(dueKey.referenceMonth, dueKey.referenceYear, card.dueDay),
     carriedAmount: line?.carriedAmount ?? 0,
     negotiatedInstallmentAmount: line?.negotiatedInstallmentAmount ?? 0,
     paymentAmount: line?.paymentAmount ?? 0,
@@ -642,7 +669,12 @@ export async function closeInvoiceManual(
     throw Object.assign(new Error('Fatura renegociada não pode ser fechada manualmente'), { statusCode: 409 })
   }
 
-  const closingDate = getClosingDateDate(line.referenceMonth, line.referenceYear, card.closingDay)
+  const closingDate = getOfficialClosingDate(
+    line.referenceMonth,
+    line.referenceYear,
+    card.closingDay,
+    card.dueDay,
+  )
   const now = new Date()
   const isBeforeClosingDate = now < closingDate
   if (isBeforeClosingDate && !input.reason) {
