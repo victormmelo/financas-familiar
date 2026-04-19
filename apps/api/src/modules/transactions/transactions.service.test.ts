@@ -333,6 +333,7 @@ describe('createTransaction', () => {
         accountId: 'acc-1',
         categoryId: 'cat-pai',
         type: 'EXPENSE',
+        nature: 'NORMAL',
         amount: 100,
         description: 'Teste',
         date: '2026-04-01',
