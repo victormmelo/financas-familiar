@@ -158,6 +158,9 @@ export async function reconcileInvoiceStatesForCard(
     const renegotiated = settlementInvoiceIds.has(invoice.id) || invoice.status === 'RENEGOTIATED'
     const dueDate = dueInstantUtc(invoice.referenceYear, invoice.referenceMonth, dueDay)
     const closingDate = closingInstantUtc(invoice.referenceYear, invoice.referenceMonth, closingDay)
+    const manuallyReopened =
+      !!invoice.manualReopenedAt &&
+      (!invoice.manualClosedAt || invoice.manualReopenedAt > invoice.manualClosedAt)
 
     let status: InvoiceLedgerLine['status']
     let outstandingAmount = 0
@@ -176,7 +179,10 @@ export async function reconcileInvoiceStatesForCard(
         status = 'OVERDUE'
       } else if (paymentAmount > 0) {
         status = 'PARTIAL'
-      } else if (today >= closingDate) {
+      } else if (
+        (invoice.manualClosedAt && !manuallyReopened) ||
+        (today >= closingDate && !manuallyReopened)
+      ) {
         status = 'CLOSED'
       } else {
         status = 'OPEN'

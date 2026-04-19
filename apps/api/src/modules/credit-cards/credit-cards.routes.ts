@@ -5,6 +5,8 @@ import {
   listInvoicesSchema,
   payInvoiceSchema,
   createInvoiceSettlementSchema,
+  closeInvoiceManualSchema,
+  reopenInvoiceSchema,
 } from './credit-cards.schema.js'
 import * as creditCardsService from './credit-cards.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
@@ -116,6 +118,38 @@ const creditCardsRoutes: FastifyPluginAsync = async (fastify) => {
       const user = request.user as TokenPayload
       const input = createInvoiceSettlementSchema.parse(request.body)
       return creditCardsService.createInvoiceSettlement(
+        user.familyId,
+        user.sub,
+        request.params.id,
+        request.params.invoiceId,
+        input,
+      )
+    },
+  )
+
+  // POST /credit-cards/:id/invoices/:invoiceId/close
+  fastify.post<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId/close',
+    async (request) => {
+      const user = request.user as TokenPayload
+      const input = closeInvoiceManualSchema.parse(request.body)
+      return creditCardsService.closeInvoiceManual(
+        user.familyId,
+        user.sub,
+        request.params.id,
+        request.params.invoiceId,
+        input,
+      )
+    },
+  )
+
+  // POST /credit-cards/:id/invoices/:invoiceId/reopen
+  fastify.post<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId/reopen',
+    async (request) => {
+      const user = request.user as TokenPayload
+      const input = reopenInvoiceSchema.parse(request.body)
+      return creditCardsService.reopenInvoice(
         user.familyId,
         user.sub,
         request.params.id,

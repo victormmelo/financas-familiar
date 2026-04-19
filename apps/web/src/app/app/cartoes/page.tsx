@@ -4,7 +4,18 @@ import { useState, useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, CreditCard, Power, ChevronRight, X } from 'lucide-react'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Power,
+  ChevronRight,
+  Lock,
+  LockOpen,
+} from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +34,8 @@ import {
   usePayInvoice,
   useCreditCardInvoiceStatement,
   useCreateInvoiceSettlement,
+  useCloseInvoiceManual,
+  useReopenInvoice,
   type CreditCard as CreditCardType,
   type CreditCardInvoice,
   type CreditCardInvoiceStatement,
@@ -158,7 +171,11 @@ export default function CartoesPage() {
 
           {/* Faturas */}
           {expandedCard === card.id && (
-            <InvoiceList cardId={card.id} defaultAccountId={card.defaultAccountId} />
+            <InvoiceList
+              cardId={card.id}
+              defaultAccountId={card.defaultAccountId}
+              closingDay={card.closingDay}
+            />
           )}
         </CardContent>
       </Card>
@@ -266,16 +283,30 @@ const settlementFormSchema = z.object({
 
 type SettlementFormData = z.infer<typeof settlementFormSchema>
 
-function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAccountId?: string | null }) {
+function InvoiceList({
+  cardId,
+  defaultAccountId,
+  closingDay,
+}: {
+  cardId: string
+  defaultAccountId?: string | null
+  closingDay: number
+}) {
   const { data, isLoading } = useCreditCardInvoices(cardId)
   const payInvoice = usePayInvoice()
   const createSettlement = useCreateInvoiceSettlement()
+  const closeInvoice = useCloseInvoiceManual()
+  const reopenInvoice = useReopenInvoice()
   const { data: accounts } = useAccounts()
   const { toast } = useToast()
 
   const [payDialog, setPayDialog] = useState<CreditCardInvoice | null>(null)
   const [settlementDialog, setSettlementDialog] = useState<CreditCardInvoice | null>(null)
+  const [closeDialog, setCloseDialog] = useState<CreditCardInvoice | null>(null)
+  const [reopenDialog, setReopenDialog] = useState<CreditCardInvoice | null>(null)
   const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
+  const [closeReason, setCloseReason] = useState('')
+  const [reopenReason, setReopenReason] = useState('')
 
   const payStatementQuery = useCreditCardInvoiceStatement(cardId, payDialog?.id ?? '')
 
@@ -367,6 +398,47 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
     }
   }
 
+  async function onCloseInvoiceConfirm() {
+    if (!closeDialog) return
+    const requiresReason = isBeforeOfficialClosingDate(closeDialog, closingDay)
+    if (requiresReason && closeReason.trim().length < 5) {
+      toast('Informe um motivo (mínimo 5 caracteres) para fechar antes da data oficial.', 'error')
+      return
+    }
+    try {
+      await closeInvoice.mutateAsync({
+        cardId,
+        invoiceId: closeDialog.id,
+        reason: closeReason.trim() || undefined,
+      })
+      toast('Fatura fechada manualmente', 'success')
+      setCloseDialog(null)
+      setCloseReason('')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao fechar fatura', 'error')
+    }
+  }
+
+  async function onReopenInvoiceConfirm() {
+    if (!reopenDialog) return
+    if (reopenReason.trim().length < 5) {
+      toast('Informe um motivo com pelo menos 5 caracteres para reabrir a fatura.', 'error')
+      return
+    }
+    try {
+      await reopenInvoice.mutateAsync({
+        cardId,
+        invoiceId: reopenDialog.id,
+        reason: reopenReason.trim(),
+      })
+      toast('Fatura reaberta com sucesso', 'success')
+      setReopenDialog(null)
+      setReopenReason('')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao reabrir fatura', 'error')
+    }
+  }
+
   if (isLoading) return (
     <div className="mt-4 border-t border-border pt-4 space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
@@ -376,10 +448,23 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
   )
 
   const invoices = data?.data ?? []
+  const invoicesEligibleForClose = invoices.filter(
+    (inv) => inv.status === 'OPEN' && hasReachedClosingDate(inv, closingDay),
+  )
 
   return (
     <div className="mt-4 border-t border-border pt-4">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Faturas</p>
+      {invoicesEligibleForClose.length > 0 && (
+        <div className="mb-3 rounded-sm border border-[#7A6416] bg-[#2B240D] p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#E3CB67]">
+            Fechamento pendente
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {invoicesEligibleForClose.length} fatura(s) já passaram da data de fechamento oficial.
+          </p>
+        </div>
+      )}
       {invoices.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nenhuma fatura encontrada</p>
       ) : (
@@ -435,7 +520,7 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
-                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
+                {canManageFinancialActions(inv) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -447,7 +532,7 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                     Pagar
                   </Button>
                 )}
-                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
+                {canManageFinancialActions(inv) && (
                   <Button
                     size="sm"
                     onClick={(e) => {
@@ -456,6 +541,32 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                     }}
                   >
                     Negociar
+                  </Button>
+                )}
+                {inv.status === 'OPEN' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setCloseDialog(inv)
+                    }}
+                  >
+                    <Lock className="h-3.5 w-3.5" />
+                    Fechar
+                  </Button>
+                )}
+                {(inv.status === 'CLOSED' || inv.status === 'RENEGOTIATED') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setReopenDialog(inv)
+                    }}
+                  >
+                    <LockOpen className="h-3.5 w-3.5" />
+                    Reabrir
                   </Button>
                 )}
               </div>
@@ -663,6 +774,91 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
           </DialogFooter>
         </form>
       </Dialog>
+
+      {/* Dialog de fechamento manual */}
+      <Dialog
+        open={!!closeDialog}
+        onClose={() => setCloseDialog(null)}
+        className="max-w-sm"
+        preventClose={closeInvoice.isPending}
+      >
+        <div className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader title="Fechar fatura" onClose={() => setCloseDialog(null)} />
+          <DialogBody className="space-y-4">
+            {closeDialog && (
+              <div className="rounded-sm border border-border bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Fatura</p>
+                <p className="text-sm font-medium text-foreground">
+                  {getMonthName(closeDialog.referenceMonth)} / {closeDialog.referenceYear}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isBeforeOfficialClosingDate(closeDialog, closingDay)
+                    ? 'Fechamento antecipado: motivo obrigatório.'
+                    : 'Fechamento na janela oficial.'}
+                </p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Motivo {isBeforeOfficialClosingDate(closeDialog, closingDay) ? '(obrigatório)' : '(opcional)'}</Label>
+              <textarea
+                className="min-h-24 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm text-foreground outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                value={closeReason}
+                onChange={(event) => setCloseReason(event.target.value)}
+                placeholder="Ex.: revisão antecipada para ajuste de compras no período"
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCloseDialog(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={onCloseInvoiceConfirm} isLoading={closeInvoice.isPending}>
+              Confirmar fechamento
+            </Button>
+          </DialogFooter>
+        </div>
+      </Dialog>
+
+      {/* Dialog de reabertura */}
+      <Dialog
+        open={!!reopenDialog}
+        onClose={() => setReopenDialog(null)}
+        className="max-w-sm"
+        preventClose={reopenInvoice.isPending}
+      >
+        <div className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader title="Reabrir fatura" onClose={() => setReopenDialog(null)} />
+          <DialogBody className="space-y-4">
+            {reopenDialog && (
+              <div className="rounded-sm border border-[#7A6416] bg-[#2B240D] p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#E3CB67]">
+                  Ação sensível
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  A reabertura libera mudanças financeiras e será registrada no histórico da fatura.
+                </p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Motivo (obrigatório)</Label>
+              <textarea
+                className="min-h-24 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm text-foreground outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                value={reopenReason}
+                onChange={(event) => setReopenReason(event.target.value)}
+                placeholder="Ex.: correção de lançamentos vinculados incorretamente"
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setReopenDialog(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={onReopenInvoiceConfirm} isLoading={reopenInvoice.isPending}>
+              Confirmar reabertura
+            </Button>
+          </DialogFooter>
+        </div>
+      </Dialog>
     </div>
   )
 }
@@ -727,6 +923,41 @@ function InvoiceDetailDialog({
               <BreakdownCard label="Pagamentos" value={statement?.breakdown.paymentAmount ?? 0} />
             </div>
 
+            {(invoice.status === 'CLOSED' || invoice.status === 'RENEGOTIATED') && (
+              <div className="rounded-sm border border-[#7A6416] bg-[#2B240D] p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#E3CB67]">
+                  Alterações financeiras bloqueadas
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Para editar transações, pagamentos ou liquidações, reabra esta fatura.
+                </p>
+              </div>
+            )}
+
+            {statement?.payments?.length ? (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                  Pagamentos ({statement.payments.length})
+                </p>
+                <div className="space-y-1">
+                  {statement.payments.map((payment) => (
+                    <div
+                      key={payment.id}
+                      className="flex items-center justify-between rounded-sm border border-border bg-muted/30 px-3 py-2"
+                    >
+                      <div>
+                        <p className="text-sm text-foreground">{payment.description}</p>
+                        <p className="text-[10px] text-muted-foreground">{formatCalendarDate(payment.date)}</p>
+                      </div>
+                      <p className="font-mono tabular-nums text-sm text-[#8DDBA4]">
+                        {formatCurrency(payment.amount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {statement?.settlement && (
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
@@ -783,6 +1014,37 @@ function InvoiceDetailDialog({
                 </div>
               )}
             </div>
+
+            <div>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                Histórico da fatura ({statement?.events?.length ?? 0})
+              </p>
+              {!statement?.events?.length ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum evento registrado</p>
+              ) : (
+                <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                  {statement.events.map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-sm border border-border bg-muted/30 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-medium text-foreground">{formatInvoiceEventLabel(event.action)}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {formatDate(event.createdAt)}
+                        </p>
+                      </div>
+                      {event.actor?.name && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5">por {event.actor.name}</p>
+                      )}
+                      {event.reason && (
+                        <p className="text-xs text-muted-foreground mt-1">{event.reason}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <p className="text-sm text-muted-foreground text-center py-6">Fatura não encontrada</p>
@@ -799,6 +1061,42 @@ function InvoiceDetailDialog({
 
 function isOverdue(dueDate: string): boolean {
   return new Date(dueDate) < new Date()
+}
+
+function canManageFinancialActions(invoice: CreditCardInvoice): boolean {
+  return invoice.status === 'OPEN' || invoice.status === 'PARTIAL' || invoice.status === 'OVERDUE'
+}
+
+function hasReachedClosingDate(invoice: CreditCardInvoice, closingDay: number): boolean {
+  const now = new Date()
+  const closingDate = new Date(Date.UTC(invoice.referenceYear, invoice.referenceMonth - 1, closingDay))
+  return now >= closingDate
+}
+
+function isBeforeOfficialClosingDate(invoice: CreditCardInvoice | null, closingDay: number): boolean {
+  if (!invoice) return false
+  const now = new Date()
+  const closingDate = new Date(Date.UTC(invoice.referenceYear, invoice.referenceMonth - 1, closingDay))
+  return now < closingDate
+}
+
+function formatInvoiceEventLabel(action: string): string {
+  switch (action) {
+    case 'MANUAL_CLOSE':
+      return 'Fechamento manual'
+    case 'MANUAL_REOPEN':
+      return 'Reabertura manual'
+    case 'PAYMENT_CREATED':
+      return 'Pagamento registrado'
+    case 'SETTLEMENT_CREATED':
+      return 'Negociação criada'
+    case 'TRANSACTION_UPDATED':
+      return 'Transação atualizada'
+    case 'TRANSACTION_DELETED':
+      return 'Transação excluída'
+    default:
+      return action
+  }
 }
 
 function InvoiceStatusBadge({ status }: { status: string }) {

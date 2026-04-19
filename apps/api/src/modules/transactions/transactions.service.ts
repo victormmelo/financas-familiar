@@ -7,10 +7,17 @@ import { generateOccurrences } from '../../jobs/recurring-transactions.worker.js
 import type {
   CreateTransactionInput,
   UpdateTransactionInput,
+  DeleteTransactionInput,
   BulkConfirmInput,
   BulkSetCategoryInput,
   ListTransactionsInput,
 } from './transactions.schema.js'
+import {
+  reconcileInvoiceStatesForCard,
+  ensureInvoiceRowsForCreditCardFromActivity,
+} from '../../lib/credit-card-invoices-sync.js'
+import { canEditFinancialForInvoice } from '../credit-cards/invoice-lifecycle.js'
+import { createInvoiceEvent } from '../credit-cards/credit-cards.service.js'
 
 const ALLOW_REIMBURSEMENT_OVERFLOW = process.env.ALLOW_REIMBURSEMENT_OVERFLOW === 'true'
 
@@ -252,6 +259,78 @@ async function resolveTransactionAccountId(
   const account = await prisma.account.findFirst({ where: { id: resolved, familyId } })
   if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
   return resolved
+}
+
+async function resolveInvoiceContextForTransaction(params: {
+  familyId: string
+  creditCardId: string
+  creditCardInvoiceId: string | null
+  date: Date
+}) {
+  const { familyId, creditCardId, creditCardInvoiceId, date } = params
+
+  const card = await prisma.creditCard.findFirst({
+    where: { id: creditCardId, familyId },
+    select: { id: true, closingDay: true, dueDay: true },
+  })
+  if (!card) return null
+
+  const invoice =
+    (creditCardInvoiceId
+      ? await prisma.creditCardInvoice.findFirst({
+          where: { id: creditCardInvoiceId, creditCardId },
+        })
+      : null) ??
+    (await prisma.creditCardInvoice.findFirst({
+      where: {
+        creditCardId,
+        referenceMonth: date.getUTCMonth() + 1,
+        referenceYear: date.getUTCFullYear(),
+      },
+    }))
+
+  if (!invoice) return null
+
+  return { card, invoice }
+}
+
+async function assertCardTransactionIsMutable(params: {
+  familyId: string
+  transaction: {
+    id: string
+    creditCardId: string | null
+    creditCardInvoiceId: string | null
+    date: Date
+    description: string
+  }
+  changeReason?: string
+}) {
+  const { familyId, transaction, changeReason } = params
+  if (!transaction.creditCardId) return null
+
+  const invoiceContext = await resolveInvoiceContextForTransaction({
+    familyId,
+    creditCardId: transaction.creditCardId,
+    creditCardInvoiceId: transaction.creditCardInvoiceId,
+    date: transaction.date,
+  })
+  if (!invoiceContext) return null
+
+  const { invoice, card } = invoiceContext
+  const requiresReason = invoice.status === 'CLOSED' || invoice.status === 'RENEGOTIATED'
+  if (requiresReason && !changeReason) {
+    throw Object.assign(new Error('Motivo é obrigatório para alterar transações em fatura fechada/renegociada'), {
+      statusCode: 400,
+    })
+  }
+  if (!canEditFinancialForInvoice(invoice.status)) {
+    throw Object.assign(
+      new Error('Fatura fechada/renegociada: reabra a fatura para alterar transações financeiras'),
+      { statusCode: 409 },
+    )
+  }
+
+  return { invoice, card }
 }
 
 export async function listTransactions(familyId: string, query: ListTransactionsInput) {
@@ -1022,7 +1101,12 @@ export async function bulkSetCategory(familyId: string, input: BulkSetCategoryIn
   return { updated: count }
 }
 
-export async function updateTransaction(familyId: string, transactionId: string, input: UpdateTransactionInput) {
+export async function updateTransaction(
+  familyId: string,
+  userId: string,
+  transactionId: string,
+  input: UpdateTransactionInput,
+) {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, familyId },
     include: {
@@ -1035,6 +1119,18 @@ export async function updateTransaction(familyId: string, transactionId: string,
   if (transaction.status === 'DELETED') {
     throw Object.assign(new Error('Não é possível editar transação excluída'), { statusCode: 409 })
   }
+
+  const invoiceContext = await assertCardTransactionIsMutable({
+    familyId,
+    transaction: {
+      id: transaction.id,
+      creditCardId: transaction.creditCardId,
+      creditCardInvoiceId: transaction.creditCardInvoiceId,
+      date: transaction.date,
+      description: transaction.description,
+    },
+    changeReason: input.changeReason,
+  })
 
   const nextNature = input.nature ?? transaction.nature
   const amount = input.amount ?? decimalToNumber(transaction.amount)
@@ -1132,20 +1228,106 @@ export async function updateTransaction(familyId: string, transactionId: string,
       },
     },
   })
+
+  if (invoiceContext) {
+    await createInvoiceEvent({
+      familyId,
+      creditCardId: invoiceContext.card.id,
+      invoiceId: invoiceContext.invoice.id,
+      actorUserId: userId,
+      action: 'TRANSACTION_UPDATED',
+      transactionId: transaction.id,
+      reason: input.changeReason ?? null,
+      payloadBefore: {
+        amount: decimalToNumber(transaction.amount),
+        date: transaction.date.toISOString(),
+        description: transaction.description,
+        liquidated: transaction.liquidated,
+      },
+      payloadAfter: {
+        amount: decimalToNumber(updated.amount),
+        date: updated.date.toISOString(),
+        description: updated.description,
+        liquidated: updated.liquidated,
+      },
+    })
+    await ensureInvoiceRowsForCreditCardFromActivity(
+      invoiceContext.card.id,
+      invoiceContext.card.closingDay,
+      invoiceContext.card.dueDay,
+    )
+    await reconcileInvoiceStatesForCard(
+      invoiceContext.card.id,
+      invoiceContext.card.closingDay,
+      invoiceContext.card.dueDay,
+    )
+  }
+
   const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
   return wireTransactionDate(withMetrics)
 }
 
-export async function deleteTransaction(familyId: string, transactionId: string) {
+export async function deleteTransaction(
+  familyId: string,
+  userId: string,
+  transactionId: string,
+  input: DeleteTransactionInput,
+) {
   const transaction = await prisma.transaction.findFirst({
     where: { id: transactionId, familyId },
   })
   if (!transaction) throw Object.assign(new Error('Transação não encontrada'), { statusCode: 404 })
 
-  return prisma.transaction.update({
+  const invoiceContext = await assertCardTransactionIsMutable({
+    familyId,
+    transaction: {
+      id: transaction.id,
+      creditCardId: transaction.creditCardId,
+      creditCardInvoiceId: transaction.creditCardInvoiceId,
+      date: transaction.date,
+      description: transaction.description,
+    },
+    changeReason: input.changeReason,
+  })
+
+  const deleted = await prisma.transaction.update({
     where: { id: transactionId },
     data: { status: 'DELETED' },
   })
+
+  if (invoiceContext) {
+    await createInvoiceEvent({
+      familyId,
+      creditCardId: invoiceContext.card.id,
+      invoiceId: invoiceContext.invoice.id,
+      actorUserId: userId,
+      action: 'TRANSACTION_DELETED',
+      transactionId: transaction.id,
+      reason: input.changeReason ?? null,
+      payloadBefore: {
+        amount: decimalToNumber(transaction.amount),
+        date: transaction.date.toISOString(),
+        description: transaction.description,
+        liquidated: transaction.liquidated,
+        status: transaction.status,
+      },
+      payloadAfter: {
+        status: 'DELETED',
+      },
+    })
+    await ensureInvoiceRowsForCreditCardFromActivity(
+      invoiceContext.card.id,
+      invoiceContext.card.closingDay,
+      invoiceContext.card.dueDay,
+    )
+    await reconcileInvoiceStatesForCard(
+      invoiceContext.card.id,
+      invoiceContext.card.closingDay,
+      invoiceContext.card.dueDay,
+    )
+  }
+
+  return deleted
 }
 
 export async function restoreTransaction(familyId: string, transactionId: string) {

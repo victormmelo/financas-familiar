@@ -167,4 +167,33 @@ describe('reconcileInvoiceStatesForCard', () => {
     expect(lines[0].negotiatedInstallmentAmount).toBeCloseTo(123.45, 2)
     expect(lines[0].totalAmount).toBeCloseTo(323.45, 2)
   })
+
+  it('mantém fatura reaberta manualmente como OPEN mesmo após data de fechamento', async () => {
+    vi.mocked(prisma.creditCardInvoice.findMany).mockResolvedValue([
+      {
+        id: 'inv-mar',
+        creditCardId: 'card-1',
+        referenceMonth: 3,
+        referenceYear: 2026,
+        totalAmount: new Decimal(0),
+        status: 'OPEN',
+        paidAt: null,
+        paidFromAccountId: null,
+        manualClosedAt: new Date('2026-03-20T00:00:00Z'),
+        manualReopenedAt: new Date('2026-03-22T00:00:00Z'),
+        renegotiatedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ] as never)
+    vi.mocked(prisma.creditCardInvoiceSettlementInstallment.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.creditCardInvoiceSettlement.findMany).mockResolvedValue([] as never)
+    vi.mocked(prisma.transaction.groupBy).mockResolvedValue([] as never)
+    vi.mocked(netCardSpendingInPeriod).mockResolvedValueOnce(250)
+    vi.mocked(prisma.creditCardInvoice.update).mockResolvedValue({} as never)
+
+    const lines = await reconcileInvoiceStatesForCard('card-1', 20, 10, new Date('2026-03-25T00:00:00Z'))
+
+    expect(lines[0]?.status).toBe('OPEN')
+  })
 })

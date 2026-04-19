@@ -13,7 +13,10 @@ import type {
   ListInvoicesInput,
   PayInvoiceInput,
   CreateInvoiceSettlementInput,
+  CloseInvoiceManualInput,
+  ReopenInvoiceInput,
 } from './credit-cards.schema.js'
+import { canReopenInvoice } from './invoice-lifecycle.js'
 
 /** Calcula a data de vencimento de uma fatura com base no cartão. */
 function calculateDueDate(referenceMonth: number, referenceYear: number, dueDay: number): string {
@@ -39,6 +42,48 @@ function monthDateRange(referenceYear: number, referenceMonth: number): { gte: D
 
 function getDueDateDate(referenceMonth: number, referenceYear: number, dueDay: number): Date {
   return new Date(`${calculateDueDate(referenceMonth, referenceYear, dueDay)}T00:00:00.000Z`)
+}
+
+function getClosingDateDate(referenceMonth: number, referenceYear: number, closingDay: number): Date {
+  return new Date(Date.UTC(referenceYear, referenceMonth - 1, closingDay))
+}
+
+type InvoiceEventAction =
+  | 'MANUAL_CLOSE'
+  | 'MANUAL_REOPEN'
+  | 'PAYMENT_CREATED'
+  | 'SETTLEMENT_CREATED'
+  | 'TRANSACTION_UPDATED'
+  | 'TRANSACTION_DELETED'
+
+type JsonInput = Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput
+
+export async function createInvoiceEvent(input: {
+  familyId: string
+  creditCardId: string
+  invoiceId: string
+  actorUserId: string
+  action: InvoiceEventAction
+  transactionId?: string
+  reason?: string | null
+  payloadBefore?: JsonInput
+  payloadAfter?: JsonInput
+  metadata?: JsonInput
+}) {
+  await prisma.creditCardInvoiceEvent.create({
+    data: {
+      familyId: input.familyId,
+      creditCardId: input.creditCardId,
+      invoiceId: input.invoiceId,
+      actorUserId: input.actorUserId,
+      action: input.action,
+      transactionId: input.transactionId,
+      reason: input.reason ?? null,
+      payloadBefore: input.payloadBefore,
+      payloadAfter: input.payloadAfter,
+      metadata: input.metadata,
+    },
+  })
 }
 
 const cardDefaultAccountInclude = {
@@ -199,7 +244,7 @@ async function getLedgerLineOrThrow(familyId: string, cardId: string, invoiceId:
 export async function getInvoiceStatement(familyId: string, cardId: string, invoiceId: string) {
   const { card, line } = await getLedgerLineOrThrow(familyId, cardId, invoiceId)
 
-  const [invoice, payments, settlement, transactions] = await Promise.all([
+  const [invoice, payments, settlement, transactions, events] = await Promise.all([
     prisma.creditCardInvoice.findFirst({
       where: { id: invoiceId, creditCardId: cardId },
       include: { paidFromAccount: { select: { id: true, name: true } } },
@@ -229,6 +274,17 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
       },
       orderBy: { date: 'desc' },
     }),
+    prisma.creditCardInvoiceEvent.findMany({
+      where: {
+        invoiceId,
+        familyId,
+      },
+      include: {
+        actor: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
   ])
 
   if (!invoice) throw Object.assign(new Error('Fatura não encontrada'), { statusCode: 404 })
@@ -250,6 +306,7 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
     },
     payments: payments.map(wireTransactionDate),
     settlement,
+    events,
   }
 }
 
@@ -374,8 +431,9 @@ export async function payInvoice(
     throw Object.assign(new Error('Pagamento não pode exceder saldo em aberto'), { statusCode: 400 })
   }
 
+  let paymentTransactionId: string | null = null
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.transaction.create({
+    const payment = await tx.transaction.create({
       data: {
         familyId,
         accountId: input.accountId,
@@ -394,6 +452,7 @@ export async function payInvoice(
         liquidated: true,
       },
     })
+    paymentTransactionId = payment.id
 
     await tx.creditCardInvoice.update({
       where: { id: invoiceId },
@@ -402,6 +461,21 @@ export async function payInvoice(
       },
     })
   })
+
+  if (paymentTransactionId) {
+    await createInvoiceEvent({
+      familyId,
+      creditCardId: cardId,
+      invoiceId,
+      actorUserId: userId,
+      action: 'PAYMENT_CREATED',
+      transactionId: paymentTransactionId,
+      payloadAfter: {
+        amount: amountToPay,
+        accountId: input.accountId,
+      },
+    })
+  }
 
   await reconcileInvoiceStatesForCard(card.id, card.closingDay, card.dueDay)
   return getInvoiceStatement(familyId, cardId, invoiceId)
@@ -527,6 +601,23 @@ export async function createInvoiceSettlement(
 
   await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay, card.dueDay)
   await reconcileInvoiceStatesForCard(card.id, card.closingDay, card.dueDay)
+  await createInvoiceEvent({
+    familyId,
+    creditCardId: cardId,
+    invoiceId,
+    actorUserId: userId,
+    action: 'SETTLEMENT_CREATED',
+    reason: downPayment > 0 ? 'Negociação com entrada' : 'Negociação sem entrada',
+    payloadAfter: {
+      settlementId: settlement.id,
+      downPayment,
+      negotiatedTotal,
+      installmentCount: input.installmentCount,
+      installmentAmount: input.installmentAmount,
+      firstInstallmentMonth: input.firstInstallmentMonth,
+      firstInstallmentYear: input.firstInstallmentYear,
+    },
+  })
 
   return prisma.creditCardInvoiceSettlement.findUniqueOrThrow({
     where: { id: settlement.id },
@@ -534,4 +625,168 @@ export async function createInvoiceSettlement(
       installments: { orderBy: { sequence: 'asc' } },
     },
   })
+}
+
+export async function closeInvoiceManual(
+  familyId: string,
+  userId: string,
+  cardId: string,
+  invoiceId: string,
+  input: CloseInvoiceManualInput,
+) {
+  const { card, line } = await getLedgerLineOrThrow(familyId, cardId, invoiceId)
+  if (line.status === 'PAID') {
+    throw Object.assign(new Error('Fatura já está quitada'), { statusCode: 409 })
+  }
+  if (line.status === 'RENEGOTIATED') {
+    throw Object.assign(new Error('Fatura renegociada não pode ser fechada manualmente'), { statusCode: 409 })
+  }
+
+  const closingDate = getClosingDateDate(line.referenceMonth, line.referenceYear, card.closingDay)
+  const now = new Date()
+  const isBeforeClosingDate = now < closingDate
+  if (isBeforeClosingDate && !input.reason) {
+    throw Object.assign(
+      new Error('Motivo é obrigatório ao fechar fatura antes da data oficial de fechamento'),
+      { statusCode: 400 },
+    )
+  }
+
+  const invoiceBefore = await prisma.creditCardInvoice.findFirst({
+    where: { id: invoiceId, creditCardId: cardId },
+    select: {
+      id: true,
+      status: true,
+      manualClosedAt: true,
+      manualReopenedAt: true,
+    },
+  })
+  if (!invoiceBefore) throw Object.assign(new Error('Fatura não encontrada'), { statusCode: 404 })
+
+  await prisma.creditCardInvoice.update({
+    where: { id: invoiceId },
+    data: {
+      manualClosedAt: now,
+      manualReopenedAt: null,
+      status: 'CLOSED',
+    },
+  })
+
+  await createInvoiceEvent({
+    familyId,
+    creditCardId: cardId,
+    invoiceId,
+    actorUserId: userId,
+    action: 'MANUAL_CLOSE',
+    reason: input.reason ?? null,
+    payloadBefore: {
+      id: invoiceBefore.id,
+      status: invoiceBefore.status,
+      manualClosedAt: invoiceBefore.manualClosedAt?.toISOString() ?? null,
+      manualReopenedAt: invoiceBefore.manualReopenedAt?.toISOString() ?? null,
+    },
+    payloadAfter: { status: 'CLOSED', manualClosedAt: now.toISOString(), manualReopenedAt: null },
+    metadata: {
+      isBeforeClosingDate,
+      officialClosingDate: closingDate.toISOString(),
+    },
+  })
+
+  await reconcileInvoiceStatesForCard(card.id, card.closingDay, card.dueDay)
+  return getInvoiceStatement(familyId, cardId, invoiceId)
+}
+
+export async function reopenInvoice(
+  familyId: string,
+  userId: string,
+  cardId: string,
+  invoiceId: string,
+  input: ReopenInvoiceInput,
+) {
+  const { card, line } = await getLedgerLineOrThrow(familyId, cardId, invoiceId)
+  const reopenedAt = new Date()
+  if (!canReopenInvoice(line.status)) {
+    throw Object.assign(new Error('Status da fatura não permite reabertura'), { statusCode: 409 })
+  }
+
+  const invoiceBefore = await prisma.creditCardInvoice.findFirst({
+    where: { id: invoiceId, creditCardId: cardId },
+    select: {
+      id: true,
+      status: true,
+      manualClosedAt: true,
+      manualReopenedAt: true,
+      renegotiatedAt: true,
+    },
+  })
+  if (!invoiceBefore) throw Object.assign(new Error('Fatura não encontrada'), { statusCode: 404 })
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (line.status === 'RENEGOTIATED') {
+      const activeSettlement = await tx.creditCardInvoiceSettlement.findFirst({
+        where: { invoiceId, status: 'ACTIVE' },
+        include: {
+          installments: true,
+        },
+      })
+      if (!activeSettlement) {
+        throw Object.assign(new Error('Fatura renegociada sem negociação ativa para reabrir'), {
+          statusCode: 409,
+        })
+      }
+
+      const hasPaidInstallment = activeSettlement.installments.some((installment) => installment.status === 'PAID')
+      if (hasPaidInstallment) {
+        throw Object.assign(
+          new Error('Não é possível reabrir fatura renegociada com parcelas já pagas'),
+          { statusCode: 409 },
+        )
+      }
+
+      await tx.creditCardInvoiceSettlementInstallment.updateMany({
+        where: { settlementId: activeSettlement.id, status: { not: 'PAID' } },
+        data: { status: 'CANCELLED' },
+      })
+      await tx.creditCardInvoiceSettlement.update({
+        where: { id: activeSettlement.id },
+        data: { status: 'CANCELLED' },
+      })
+    }
+
+    await tx.creditCardInvoice.update({
+      where: { id: invoiceId },
+      data: {
+        manualClosedAt: null,
+        manualReopenedAt: reopenedAt,
+        status: 'OPEN',
+        renegotiatedAt: null,
+      },
+    })
+  })
+
+  await createInvoiceEvent({
+    familyId,
+    creditCardId: cardId,
+    invoiceId,
+    actorUserId: userId,
+    action: 'MANUAL_REOPEN',
+    reason: input.reason,
+    payloadBefore: {
+      id: invoiceBefore.id,
+      status: invoiceBefore.status,
+      manualClosedAt: invoiceBefore.manualClosedAt?.toISOString() ?? null,
+      manualReopenedAt: invoiceBefore.manualReopenedAt?.toISOString() ?? null,
+      renegotiatedAt: invoiceBefore.renegotiatedAt?.toISOString() ?? null,
+    },
+    payloadAfter: {
+      status: 'OPEN',
+      manualClosedAt: null,
+      manualReopenedAt: reopenedAt.toISOString(),
+      renegotiatedAt: null,
+    },
+  })
+
+  await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay, card.dueDay)
+  await reconcileInvoiceStatesForCard(card.id, card.closingDay, card.dueDay)
+  return getInvoiceStatement(familyId, cardId, invoiceId)
 }

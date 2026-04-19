@@ -74,6 +74,15 @@ enum InvoiceStatus {
   PAID
 }
 
+enum CreditCardInvoiceEventType {
+  MANUAL_CLOSE
+  MANUAL_REOPEN
+  PAYMENT_CREATED
+  SETTLEMENT_CREATED
+  TRANSACTION_UPDATED
+  TRANSACTION_DELETED
+}
+
 enum CreditCardInvoiceSettlementStatus {
   ACTIVE
   CANCELLED
@@ -144,6 +153,7 @@ model Family {
   reports      Report[]
   integrationClients IntegrationClient[]
   creditCardInvoiceSettlements CreditCardInvoiceSettlement[]
+  creditCardInvoiceEvents CreditCardInvoiceEvent[]
   reconciliationSessions ReconciliationSession[]
   statementItems         StatementItem[]
 
@@ -169,6 +179,7 @@ model User {
   invitesSent  FamilyInvite[] @relation("InvitedBy")
   integrationClientsCreated IntegrationClient[]
   creditCardInvoiceSettlementsCreated CreditCardInvoiceSettlement[]
+  creditCardInvoiceEventsCreated CreditCardInvoiceEvent[]
   reconciliationSessions ReconciliationSession[]
   entryDefaultAccount    Account?    @relation("UserEntryDefaultAccount", fields: [entryDefaultAccountId], references: [id])
   entryDefaultCreditCard CreditCard? @relation("UserEntryDefaultCreditCard", fields: [entryDefaultCreditCardId], references: [id])
@@ -281,6 +292,7 @@ model Transaction {
   linkedTransaction Transaction? @relation("TransactionCompensations", fields: [linkedTransactionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   compensationTransactions Transaction[] @relation("TransactionCompensations")
   settlementInstallmentPayment CreditCardInvoiceSettlementInstallment? @relation("SettlementInstallmentPayment")
+  invoiceEvents CreditCardInvoiceEvent[]
   draft      TransactionDraft?
   statementItems StatementItem[]
 
@@ -340,6 +352,7 @@ model CreditCard {
   transactions   Transaction[]
   invoices       CreditCardInvoice[]
   settlements    CreditCardInvoiceSettlement[]
+  invoiceEvents  CreditCardInvoiceEvent[]
   usersEntryDefault User[]         @relation("UserEntryDefaultCreditCard")
 
   @@index([defaultAccountId])
@@ -356,6 +369,8 @@ model CreditCardInvoice {
   paidAt         DateTime?   @map("paid_at")
   paidFromAccountId String?  @map("paid_from_account_id")
   renegotiatedAt DateTime?   @map("renegotiated_at")
+  manualClosedAt DateTime?   @map("manual_closed_at")
+  manualReopenedAt DateTime? @map("manual_reopened_at")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
@@ -363,10 +378,38 @@ model CreditCardInvoice {
   paidFromAccount Account?   @relation(fields: [paidFromAccountId], references: [id])
   paymentTransactions Transaction[]
   settlements CreditCardInvoiceSettlement[]
+  events      CreditCardInvoiceEvent[]
 
   @@unique([creditCardId, referenceMonth, referenceYear])
   @@index([status])
   @@map("credit_card_invoices")
+}
+
+model CreditCardInvoiceEvent {
+  id            String                  @id @default(uuid())
+  familyId      String                  @map("family_id")
+  creditCardId  String                  @map("credit_card_id")
+  invoiceId     String                  @map("invoice_id")
+  transactionId String?                 @map("transaction_id")
+  actorUserId   String                  @map("actor_user_id")
+  action        CreditCardInvoiceEventType
+  reason        String?
+  payloadBefore Json?                   @map("payload_before")
+  payloadAfter  Json?                   @map("payload_after")
+  metadata      Json?
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  family      Family            @relation(fields: [familyId], references: [id])
+  creditCard  CreditCard        @relation(fields: [creditCardId], references: [id])
+  invoice     CreditCardInvoice @relation(fields: [invoiceId], references: [id])
+  transaction Transaction?      @relation(fields: [transactionId], references: [id])
+  actor       User              @relation(fields: [actorUserId], references: [id])
+
+  @@index([familyId, invoiceId, createdAt])
+  @@index([creditCardId])
+  @@index([transactionId])
+  @@index([actorUserId])
+  @@map("credit_card_invoice_events")
 }
 
 model CreditCardInvoiceSettlement {

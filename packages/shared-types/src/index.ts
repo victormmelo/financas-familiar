@@ -376,10 +376,36 @@ export interface CreditCardInvoice {
   dueDate: string
   paidAt: string | null
   paidFromAccountId: string | null
+  manualClosedAt: string | null
+  manualReopenedAt: string | null
   paidFromAccount?: { id: string; name: string } | null
   createdAt: string
   updatedAt: string
   transactions?: Transaction[]
+}
+
+export type CreditCardInvoiceEventAction =
+  | 'MANUAL_CLOSE'
+  | 'MANUAL_REOPEN'
+  | 'PAYMENT_CREATED'
+  | 'SETTLEMENT_CREATED'
+  | 'TRANSACTION_UPDATED'
+  | 'TRANSACTION_DELETED'
+
+export interface CreditCardInvoiceEvent {
+  id: string
+  familyId: string
+  creditCardId: string
+  invoiceId: string
+  transactionId: string | null
+  actorUserId: string
+  action: CreditCardInvoiceEventAction
+  reason: string | null
+  payloadBefore: Record<string, unknown> | null
+  payloadAfter: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+  actor?: { id: string; name: string } | null
 }
 
 export interface CreditCardInvoiceSettlementInstallment {
@@ -420,6 +446,14 @@ export interface CreateCreditCardInvoiceSettlementInput {
   firstInstallmentMonth: number
   firstInstallmentYear: number
   installments: Array<{ amount: number }>
+}
+
+export interface CloseCreditCardInvoiceInput {
+  reason?: string
+}
+
+export interface ReopenCreditCardInvoiceInput {
+  reason: string
 }
 
 // ─── Goal ─────────────────────────────────────────────────────────────────────

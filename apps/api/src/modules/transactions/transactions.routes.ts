@@ -7,6 +7,7 @@ import {
   listTransactionsSchema,
   dashboardSummarySchema,
   expenseCategorySummarySchema,
+  deleteTransactionSchema,
 } from './transactions.schema.js'
 import * as transactionsService from './transactions.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
@@ -123,13 +124,14 @@ const transactionsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string } }>('/:id', async (request) => {
     const user = request.user as TokenPayload
     const input = updateTransactionSchema.parse(request.body)
-    return transactionsService.updateTransaction(user.familyId, request.params.id, input)
+    return transactionsService.updateTransaction(user.familyId, user.sub, request.params.id, input)
   })
 
   // DELETE /transactions/:id
   fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
     const user = request.user as TokenPayload
-    await transactionsService.deleteTransaction(user.familyId, request.params.id)
+    const input = deleteTransactionSchema.parse(request.body ?? {})
+    await transactionsService.deleteTransaction(user.familyId, user.sub, request.params.id, input)
     return reply.status(204).send()
   })
 }

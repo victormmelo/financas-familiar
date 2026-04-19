@@ -3,6 +3,7 @@ import { z } from 'zod'
 const transactionTypeEnum = z.enum(['INCOME', 'EXPENSE'])
 const transactionNatureEnum = z.enum(['NORMAL', 'REIMBURSEMENT', 'TRANSFER', 'ADJUSTMENT', 'REVERSAL'])
 const draftSourceEnum = z.enum(['MANUAL', 'AI_TEXT', 'AI_VOICE', 'AI_RECEIPT', 'PDF', 'OFX', 'CSV', 'OPEN_FINANCE'])
+const changeReasonSchema = z.string().trim().min(5).max(500)
 
 export const createTransactionSchema = z
   .object({
@@ -64,6 +65,11 @@ export const updateTransactionSchema = z.object({
   liquidated: z.boolean().optional(),
   /** Troca de conta no lançamento (ex.: reembolso). Deve pertencer à mesma família. */
   accountId: z.string().uuid('ID de conta inválido').optional(),
+  changeReason: changeReasonSchema.optional(),
+})
+
+export const deleteTransactionSchema = z.object({
+  changeReason: changeReasonSchema.optional(),
 })
 
 export const bulkConfirmSchema = z.object({
@@ -104,6 +110,7 @@ export const expenseCategorySummarySchema = z.object({
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>
+export type DeleteTransactionInput = z.infer<typeof deleteTransactionSchema>
 export type BulkConfirmInput = z.infer<typeof bulkConfirmSchema>
 export type BulkSetCategoryInput = z.infer<typeof bulkSetCategorySchema>
 export type ListTransactionsInput = z.infer<typeof listTransactionsSchema>

@@ -42,8 +42,18 @@ export const createInvoiceSettlementSchema = z.object({
   firstInstallmentYear: z.number().int().min(2000).max(2200),
 })
 
+export const closeInvoiceManualSchema = z.object({
+  reason: z.string().trim().min(5, 'Motivo deve ter ao menos 5 caracteres').max(500).optional(),
+})
+
+export const reopenInvoiceSchema = z.object({
+  reason: z.string().trim().min(5, 'Motivo deve ter ao menos 5 caracteres').max(500),
+})
+
 export type CreateCreditCardInput = z.infer<typeof createCreditCardSchema>
 export type UpdateCreditCardInput = z.infer<typeof updateCreditCardSchema>
 export type ListInvoicesInput = z.infer<typeof listInvoicesSchema>
 export type PayInvoiceInput = z.infer<typeof payInvoiceSchema>
 export type CreateInvoiceSettlementInput = z.infer<typeof createInvoiceSettlementSchema>
+export type CloseInvoiceManualInput = z.infer<typeof closeInvoiceManualSchema>
+export type ReopenInvoiceInput = z.infer<typeof reopenInvoiceSchema>

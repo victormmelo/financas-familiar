@@ -30,10 +30,30 @@ vi.mock('../../lib/prisma.js', () => ({
     creditCard: {
       findFirst: vi.fn(),
     },
+    creditCardInvoice: {
+      findFirst: vi.fn(),
+    },
+    creditCardInvoiceEvent: {
+      create: vi.fn(),
+    },
   },
 }))
 
+vi.mock('../../lib/credit-card-invoices-sync.js', () => ({
+  ensureInvoiceRowsForCreditCardFromActivity: vi.fn(),
+  reconcileInvoiceStatesForCard: vi.fn(),
+}))
+
+vi.mock('../credit-cards/credit-cards.service.js', () => ({
+  createInvoiceEvent: vi.fn(),
+}))
+
 import { prisma } from '../../lib/prisma.js'
+import {
+  ensureInvoiceRowsForCreditCardFromActivity,
+  reconcileInvoiceStatesForCard,
+} from '../../lib/credit-card-invoices-sync.js'
+import { createInvoiceEvent } from '../credit-cards/credit-cards.service.js'
 import {
   listTransactions,
   createTransaction,
@@ -106,6 +126,7 @@ beforeEach(() => {
   vi.mocked(prisma.transaction.groupBy).mockResolvedValue([] as never)
   vi.mocked(prisma.transaction.aggregate).mockResolvedValue({ _sum: { amount: new Decimal(0) } } as never)
   vi.mocked(prisma.category.findFirst).mockResolvedValue(mockCategory as never)
+  vi.mocked(prisma.creditCardInvoice.findFirst).mockResolvedValue(null)
 })
 
 describe('listTransactions', () => {
@@ -905,7 +926,7 @@ describe('updateTransaction', () => {
     vi.mocked(prisma.transaction.findFirst).mockResolvedValue(mockTransaction as never)
     vi.mocked(prisma.transaction.update).mockResolvedValue({ ...mockTransaction, liquidated: true } as never)
 
-    await updateTransaction('family-1', 'tx-1', { liquidated: true })
+    await updateTransaction('family-1', 'user-1', 'tx-1', { liquidated: true })
 
     expect(prisma.transaction.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -927,7 +948,7 @@ describe('updateTransaction', () => {
       categoryId: 'cat-leaf',
     } as never)
 
-    await updateTransaction('family-1', 'tx-1', { categoryId: 'cat-leaf' })
+    await updateTransaction('family-1', 'user-1', 'tx-1', { categoryId: 'cat-leaf' })
 
     expect(prisma.category.findFirst).toHaveBeenCalled()
     expect(prisma.transaction.update).toHaveBeenCalledWith(
@@ -945,7 +966,7 @@ describe('updateTransaction', () => {
       _count: { subcategories: 1 },
     } as never)
 
-    await expect(updateTransaction('family-1', 'tx-1', { categoryId: 'cat-pai' })).rejects.toMatchObject({
+    await expect(updateTransaction('family-1', 'user-1', 'tx-1', { categoryId: 'cat-pai' })).rejects.toMatchObject({
       statusCode: 422,
     })
     expect(prisma.transaction.update).not.toHaveBeenCalled()
@@ -969,11 +990,73 @@ describe('updateTransaction', () => {
       } as never)
 
     await expect(
-      updateTransaction('family-1', 'tx-1', {
+      updateTransaction('family-1', 'user-1', 'tx-1', {
         nature: 'REIMBURSEMENT',
         linkedTransactionId: 'tx-2',
       }),
     ).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('deve bloquear edição de transação vinculada a fatura fechada', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      id: 'tx-card-closed',
+      creditCardId: 'card-1',
+      creditCardInvoiceId: 'inv-1',
+    } as never)
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      closingDay: 10,
+      dueDay: 20,
+    } as never)
+    vi.mocked(prisma.creditCardInvoice.findFirst).mockResolvedValue({
+      id: 'inv-1',
+      status: 'CLOSED',
+      referenceMonth: 4,
+      referenceYear: 2026,
+    } as never)
+
+    await expect(
+      updateTransaction('family-1', 'user-1', 'tx-card-closed', {
+        description: 'Novo texto',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 })
+    expect(prisma.transaction.update).not.toHaveBeenCalled()
+  })
+
+  it('deve editar transação de cartão quando fatura estiver aberta e registrar auditoria', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      id: 'tx-card-open',
+      creditCardId: 'card-1',
+      creditCardInvoiceId: 'inv-open',
+    } as never)
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      closingDay: 10,
+      dueDay: 20,
+    } as never)
+    vi.mocked(prisma.creditCardInvoice.findFirst).mockResolvedValue({
+      id: 'inv-open',
+      status: 'OPEN',
+      referenceMonth: 4,
+      referenceYear: 2026,
+    } as never)
+    vi.mocked(prisma.transaction.update).mockResolvedValue({
+      ...mockTransaction,
+      id: 'tx-card-open',
+      description: 'Compra ajustada',
+      creditCardId: 'card-1',
+      creditCardInvoiceId: 'inv-open',
+    } as never)
+
+    await updateTransaction('family-1', 'user-1', 'tx-card-open', {
+      description: 'Compra ajustada',
+    })
+
+    expect(createInvoiceEvent).toHaveBeenCalled()
+    expect(ensureInvoiceRowsForCreditCardFromActivity).toHaveBeenCalled()
+    expect(reconcileInvoiceStatesForCard).toHaveBeenCalled()
   })
 })
 
@@ -1018,7 +1101,7 @@ describe('updateTransaction reimbursement validations', () => {
     } as never)
 
     await expect(
-      updateTransaction('family-1', 'tx-income-edit', {
+      updateTransaction('family-1', 'user-1', 'tx-income-edit', {
         nature: 'REIMBURSEMENT',
       }),
     ).rejects.toMatchObject({ statusCode: 400 })
@@ -1035,7 +1118,7 @@ describe('updateTransaction reimbursement validations', () => {
     vi.mocked(prisma.transaction.findFirst).mockResolvedValueOnce(null)
 
     await expect(
-      updateTransaction('family-1', 'tx-income-edit', {
+      updateTransaction('family-1', 'user-1', 'tx-income-edit', {
         nature: 'REIMBURSEMENT',
         linkedTransactionId: 'tx-inexistente',
       }),
@@ -1135,7 +1218,7 @@ describe('deleteTransaction', () => {
       status: 'DELETED',
     } as never)
 
-    await deleteTransaction('family-1', 'tx-1')
+    await deleteTransaction('family-1', 'user-1', 'tx-1', {})
 
     expect(prisma.transaction.update).toHaveBeenCalledWith({
       where: { id: 'tx-1' },
@@ -1146,7 +1229,32 @@ describe('deleteTransaction', () => {
   it('deve lançar 404 para transação de outra família', async () => {
     vi.mocked(prisma.transaction.findFirst).mockResolvedValue(null)
 
-    await expect(deleteTransaction('family-2', 'tx-1')).rejects.toMatchObject({ statusCode: 404 })
+    await expect(deleteTransaction('family-2', 'user-1', 'tx-1', {})).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  it('deve bloquear exclusão quando fatura vinculada estiver fechada', async () => {
+    vi.mocked(prisma.transaction.findFirst).mockResolvedValue({
+      ...mockTransaction,
+      id: 'tx-closed-delete',
+      creditCardId: 'card-1',
+      creditCardInvoiceId: 'inv-closed',
+    } as never)
+    vi.mocked(prisma.creditCard.findFirst).mockResolvedValue({
+      id: 'card-1',
+      closingDay: 10,
+      dueDay: 20,
+    } as never)
+    vi.mocked(prisma.creditCardInvoice.findFirst).mockResolvedValue({
+      id: 'inv-closed',
+      status: 'CLOSED',
+      referenceMonth: 4,
+      referenceYear: 2026,
+    } as never)
+
+    await expect(
+      deleteTransaction('family-1', 'user-1', 'tx-closed-delete', { changeReason: 'ajuste tardio' }),
+    ).rejects.toMatchObject({ statusCode: 409 })
+    expect(prisma.transaction.update).not.toHaveBeenCalled()
   })
 })
 

@@ -36,6 +36,8 @@ export interface CreditCardInvoice {
   dueDate: string
   paidAt?: string | null
   paidFromAccountId?: string | null
+  manualClosedAt?: string | null
+  manualReopenedAt?: string | null
   paidFromAccount?: { id: string; name: string } | null
   carriedAmount?: number
   negotiatedInstallmentAmount?: number
@@ -80,6 +82,22 @@ export interface CreditCardInvoiceStatement {
   }
   payments: InvoiceTransaction[]
   settlement: CreditCardInvoiceSettlement | null
+  events: CreditCardInvoiceEvent[]
+}
+
+export interface CreditCardInvoiceEvent {
+  id: string
+  action:
+    | 'MANUAL_CLOSE'
+    | 'MANUAL_REOPEN'
+    | 'PAYMENT_CREATED'
+    | 'SETTLEMENT_CREATED'
+    | 'TRANSACTION_UPDATED'
+    | 'TRANSACTION_DELETED'
+  reason?: string | null
+  createdAt: string
+  actor?: { id: string; name: string } | null
+  metadata?: Record<string, unknown> | null
 }
 
 export function useCreditCards() {
@@ -208,6 +226,36 @@ export function useCreateInvoiceSettlement() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['credit-cards'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+    },
+  })
+}
+
+export function useCloseInvoiceManual() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ cardId, invoiceId, reason }: { cardId: string; invoiceId: string; reason?: string }) =>
+      api.post(`/credit-cards/${cardId}/invoices/${invoiceId}/close`, { reason }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['credit-cards'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId, 'statement'] })
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+    },
+  })
+}
+
+export function useReopenInvoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ cardId, invoiceId, reason }: { cardId: string; invoiceId: string; reason: string }) =>
+      api.post(`/credit-cards/${cardId}/invoices/${invoiceId}/reopen`, { reason }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['credit-cards'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId, 'statement'] })
       qc.invalidateQueries({ queryKey: ['transactions'] })
     },
   })
