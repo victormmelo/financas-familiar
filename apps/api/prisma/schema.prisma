@@ -68,7 +68,22 @@ enum CategoryType {
 enum InvoiceStatus {
   OPEN
   CLOSED
+  PARTIAL
+  OVERDUE
+  RENEGOTIATED
   PAID
+}
+
+enum CreditCardInvoiceSettlementStatus {
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+enum CreditCardInvoiceSettlementInstallmentStatus {
+  PENDING
+  PAID
+  CANCELLED
 }
 
 enum ReportType {
@@ -128,6 +143,7 @@ model Family {
   budgets      Budget[]
   reports      Report[]
   integrationClients IntegrationClient[]
+  creditCardInvoiceSettlements CreditCardInvoiceSettlement[]
   reconciliationSessions ReconciliationSession[]
   statementItems         StatementItem[]
 
@@ -152,6 +168,7 @@ model User {
   transactions Transaction[]
   invitesSent  FamilyInvite[] @relation("InvitedBy")
   integrationClientsCreated IntegrationClient[]
+  creditCardInvoiceSettlementsCreated CreditCardInvoiceSettlement[]
   reconciliationSessions ReconciliationSession[]
   entryDefaultAccount    Account?    @relation("UserEntryDefaultAccount", fields: [entryDefaultAccountId], references: [id])
   entryDefaultCreditCard CreditCard? @relation("UserEntryDefaultCreditCard", fields: [entryDefaultCreditCardId], references: [id])
@@ -263,6 +280,7 @@ model Transaction {
   creditCardInvoice CreditCardInvoice? @relation(fields: [creditCardInvoiceId], references: [id])
   linkedTransaction Transaction? @relation("TransactionCompensations", fields: [linkedTransactionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   compensationTransactions Transaction[] @relation("TransactionCompensations")
+  settlementInstallmentPayment CreditCardInvoiceSettlementInstallment? @relation("SettlementInstallmentPayment")
   draft      TransactionDraft?
   statementItems StatementItem[]
 
@@ -321,6 +339,7 @@ model CreditCard {
   defaultAccount Account?           @relation("CreditCardDefaultAccount", fields: [defaultAccountId], references: [id])
   transactions   Transaction[]
   invoices       CreditCardInvoice[]
+  settlements    CreditCardInvoiceSettlement[]
   usersEntryDefault User[]         @relation("UserEntryDefaultCreditCard")
 
   @@index([defaultAccountId])
@@ -336,16 +355,68 @@ model CreditCardInvoice {
   status         InvoiceStatus @default(OPEN)
   paidAt         DateTime?   @map("paid_at")
   paidFromAccountId String?  @map("paid_from_account_id")
+  renegotiatedAt DateTime?   @map("renegotiated_at")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
   creditCard      CreditCard @relation(fields: [creditCardId], references: [id])
   paidFromAccount Account?   @relation(fields: [paidFromAccountId], references: [id])
   paymentTransactions Transaction[]
+  settlements CreditCardInvoiceSettlement[]
 
   @@unique([creditCardId, referenceMonth, referenceYear])
   @@index([status])
   @@map("credit_card_invoices")
+}
+
+model CreditCardInvoiceSettlement {
+  id                  String                          @id @default(uuid())
+  familyId            String                          @map("family_id")
+  creditCardId        String                          @map("credit_card_id")
+  invoiceId           String                          @map("invoice_id")
+  status              CreditCardInvoiceSettlementStatus @default(ACTIVE)
+  totalOriginal       Decimal                         @map("total_original") @db.Decimal(15, 2)
+  downPayment         Decimal                         @default(0) @map("down_payment") @db.Decimal(15, 2)
+  negotiatedTotal     Decimal                         @map("negotiated_total") @db.Decimal(15, 2)
+  installmentCount    Int                             @map("installment_count")
+  firstInstallmentMonth Int                           @map("first_installment_month")
+  firstInstallmentYear  Int                           @map("first_installment_year")
+  createdById         String                          @map("created_by_id")
+  createdAt           DateTime                        @default(now()) @map("created_at")
+  updatedAt           DateTime                        @updatedAt @map("updated_at")
+
+  family       Family           @relation(fields: [familyId], references: [id])
+  creditCard   CreditCard       @relation(fields: [creditCardId], references: [id])
+  invoice      CreditCardInvoice @relation(fields: [invoiceId], references: [id])
+  createdBy    User             @relation(fields: [createdById], references: [id])
+  installments CreditCardInvoiceSettlementInstallment[]
+
+  @@index([familyId, status])
+  @@index([creditCardId])
+  @@index([invoiceId])
+  @@map("credit_card_invoice_settlements")
+}
+
+model CreditCardInvoiceSettlementInstallment {
+  id                String                                      @id @default(uuid())
+  settlementId      String                                      @map("settlement_id")
+  sequence          Int
+  dueReferenceMonth Int                                         @map("due_reference_month")
+  dueReferenceYear  Int                                         @map("due_reference_year")
+  amount            Decimal                                     @db.Decimal(15, 2)
+  status            CreditCardInvoiceSettlementInstallmentStatus @default(PENDING)
+  paidAt            DateTime?                                   @map("paid_at")
+  paidTransactionId String?                                     @unique @map("paid_transaction_id")
+  createdAt         DateTime                                    @default(now()) @map("created_at")
+  updatedAt         DateTime                                    @updatedAt @map("updated_at")
+
+  settlement      CreditCardInvoiceSettlement @relation(fields: [settlementId], references: [id])
+  paidTransaction Transaction?                @relation("SettlementInstallmentPayment", fields: [paidTransactionId], references: [id])
+
+  @@unique([settlementId, sequence])
+  @@index([dueReferenceYear, dueReferenceMonth])
+  @@index([paidTransactionId])
+  @@map("credit_card_invoice_settlement_installments")
 }
 
 model Goal {

@@ -19,7 +19,7 @@ async function processInvoiceClosings(targetDate: Date) {
   })
 
   for (const card of cards) {
-    await upsertWideInvoiceWindowForCard(card.id, card.closingDay, targetDate)
+    await upsertWideInvoiceWindowForCard(card.id, card.closingDay, card.dueDay, targetDate)
   }
 
   return { cards: cards.length }

@@ -17,7 +17,9 @@ export type DraftSource =
   | 'CSV'
   | 'OPEN_FINANCE'
 export type CategoryType = 'INCOME' | 'EXPENSE' | 'BOTH'
-export type InvoiceStatus = 'OPEN' | 'CLOSED' | 'PAID'
+export type InvoiceStatus = 'OPEN' | 'CLOSED' | 'PARTIAL' | 'OVERDUE' | 'RENEGOTIATED' | 'PAID'
+export type CreditCardInvoiceSettlementStatus = 'ACTIVE' | 'CANCELLED' | 'COMPLETED'
+export type CreditCardInvoiceSettlementInstallmentStatus = 'PENDING' | 'PAID' | 'CANCELLED'
 export type ReportType = 'DRE' | 'CASH_FLOW' | 'PATRIMONY'
 export type ReportStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'
 export type AIIntent = 'expense' | 'income' | 'internal_transfer' | 'unknown'
@@ -378,6 +380,46 @@ export interface CreditCardInvoice {
   createdAt: string
   updatedAt: string
   transactions?: Transaction[]
+}
+
+export interface CreditCardInvoiceSettlementInstallment {
+  id: string
+  settlementId: string
+  sequence: number
+  dueReferenceMonth: number
+  dueReferenceYear: number
+  amount: number
+  status: CreditCardInvoiceSettlementInstallmentStatus
+  paidAt: string | null
+  paidTransactionId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreditCardInvoiceSettlement {
+  id: string
+  familyId: string
+  creditCardId: string
+  invoiceId: string
+  status: CreditCardInvoiceSettlementStatus
+  totalOriginal: number
+  downPayment: number
+  negotiatedTotal: number
+  installmentCount: number
+  firstInstallmentMonth: number
+  firstInstallmentYear: number
+  createdById: string
+  createdAt: string
+  updatedAt: string
+  installments?: CreditCardInvoiceSettlementInstallment[]
+}
+
+export interface CreateCreditCardInvoiceSettlementInput {
+  accountId: string
+  downPayment?: number
+  firstInstallmentMonth: number
+  firstInstallmentYear: number
+  installments: Array<{ amount: number }>
 }
 
 // ─── Goal ─────────────────────────────────────────────────────────────────────

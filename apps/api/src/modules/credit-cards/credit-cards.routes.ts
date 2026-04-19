@@ -4,6 +4,7 @@ import {
   updateCreditCardSchema,
   listInvoicesSchema,
   payInvoiceSchema,
+  createInvoiceSettlementSchema,
 } from './credit-cards.schema.js'
 import * as creditCardsService from './credit-cards.service.js'
 import type { TokenPayload } from '../auth/auth.types.js'
@@ -74,6 +75,47 @@ const creditCardsRoutes: FastifyPluginAsync = async (fastify) => {
       const user = request.user as TokenPayload
       const input = payInvoiceSchema.parse(request.body)
       return creditCardsService.payInvoice(
+        user.familyId,
+        user.sub,
+        request.params.id,
+        request.params.invoiceId,
+        input,
+      )
+    },
+  )
+
+  // POST /credit-cards/:id/invoices/:invoiceId/payments
+  fastify.post<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId/payments',
+    async (request) => {
+      const user = request.user as TokenPayload
+      const input = payInvoiceSchema.parse(request.body)
+      return creditCardsService.payInvoice(
+        user.familyId,
+        user.sub,
+        request.params.id,
+        request.params.invoiceId,
+        input,
+      )
+    },
+  )
+
+  // GET /credit-cards/:id/invoices/:invoiceId/statement
+  fastify.get<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId/statement',
+    async (request) => {
+      const user = request.user as TokenPayload
+      return creditCardsService.getInvoiceStatement(user.familyId, request.params.id, request.params.invoiceId)
+    },
+  )
+
+  // POST /credit-cards/:id/invoices/:invoiceId/settlements
+  fastify.post<{ Params: { id: string; invoiceId: string } }>(
+    '/:id/invoices/:invoiceId/settlements',
+    async (request) => {
+      const user = request.user as TokenPayload
+      const input = createInvoiceSettlementSchema.parse(request.body)
+      return creditCardsService.createInvoiceSettlement(
         user.familyId,
         user.sub,
         request.params.id,

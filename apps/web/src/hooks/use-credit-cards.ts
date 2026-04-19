@@ -32,12 +32,54 @@ export interface CreditCardInvoice {
   referenceMonth: number
   referenceYear: number
   totalAmount: number
-  status: 'OPEN' | 'CLOSED' | 'PAID'
+  status: 'OPEN' | 'CLOSED' | 'PARTIAL' | 'OVERDUE' | 'RENEGOTIATED' | 'PAID'
   dueDate: string
   paidAt?: string | null
   paidFromAccountId?: string | null
   paidFromAccount?: { id: string; name: string } | null
+  carriedAmount?: number
+  negotiatedInstallmentAmount?: number
+  paymentAmount?: number
+  outstandingAmount?: number
   transactions?: InvoiceTransaction[]
+}
+
+export interface CreditCardInvoiceSettlementInstallment {
+  id: string
+  settlementId: string
+  sequence: number
+  dueReferenceMonth: number
+  dueReferenceYear: number
+  amount: number
+  status: 'PENDING' | 'PAID' | 'CANCELLED'
+  paidAt?: string | null
+}
+
+export interface CreditCardInvoiceSettlement {
+  id: string
+  status: 'ACTIVE' | 'CANCELLED' | 'COMPLETED'
+  totalOriginal: number
+  downPayment: number
+  negotiatedTotal: number
+  installmentCount: number
+  firstInstallmentMonth: number
+  firstInstallmentYear: number
+  installments: CreditCardInvoiceSettlementInstallment[]
+}
+
+export interface CreditCardInvoiceStatement {
+  invoice: CreditCardInvoice
+  breakdown: {
+    cycleAmount: number
+    carriedAmount: number
+    negotiatedInstallmentAmount: number
+    paymentAmount: number
+    totalAmount: number
+    outstandingAmount: number
+    status: CreditCardInvoice['status']
+  }
+  payments: InvoiceTransaction[]
+  settlement: CreditCardInvoiceSettlement | null
 }
 
 export function useCreditCards() {
@@ -113,7 +155,56 @@ export function usePayInvoice() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ cardId, invoiceId, accountId, amount }: { cardId: string; invoiceId: string; accountId: string; amount?: number }) =>
-      api.post(`/credit-cards/${cardId}/invoices/${invoiceId}/pay`, { accountId, amount }),
+      api.post(`/credit-cards/${cardId}/invoices/${invoiceId}/payments`, { accountId, amount }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['credit-cards'] })
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices'] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId] })
+      qc.invalidateQueries({ queryKey: ['credit-cards', vars.cardId, 'invoices', vars.invoiceId, 'statement'] })
+    },
+  })
+}
+
+export function useCreditCardInvoiceStatement(cardId: string, invoiceId: string) {
+  return useQuery({
+    queryKey: ['credit-cards', cardId, 'invoices', invoiceId, 'statement'],
+    queryFn: () => api.get<CreditCardInvoiceStatement>(`/credit-cards/${cardId}/invoices/${invoiceId}/statement`),
+    enabled: !!cardId && !!invoiceId,
+  })
+}
+
+export function useCreateInvoiceSettlement() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      cardId,
+      invoiceId,
+      accountId,
+      downPayment,
+      installmentCount,
+      installmentAmount,
+      firstInstallmentMonth,
+      firstInstallmentYear,
+    }: {
+      cardId: string
+      invoiceId: string
+      accountId: string
+      downPayment?: number
+      installmentCount: number
+      installmentAmount: number
+      firstInstallmentMonth: number
+      firstInstallmentYear: number
+    }) =>
+      api.post<CreditCardInvoiceSettlement>(`/credit-cards/${cardId}/invoices/${invoiceId}/settlements`, {
+        accountId,
+        downPayment,
+        installmentCount,
+        installmentAmount,
+        firstInstallmentMonth,
+        firstInstallmentYear,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['credit-cards'] })
       qc.invalidateQueries({ queryKey: ['accounts'] })

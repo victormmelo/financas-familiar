@@ -18,12 +18,14 @@ import { CreditCardForm } from '@/components/forms/credit-card-form'
 import {
   useCreditCards,
   useCreditCardInvoices,
-  useCreditCardInvoice,
   useDeleteCreditCard,
   useUpdateCreditCard,
   usePayInvoice,
+  useCreditCardInvoiceStatement,
+  useCreateInvoiceSettlement,
   type CreditCard as CreditCardType,
   type CreditCardInvoice,
+  type CreditCardInvoiceStatement,
   type InvoiceTransaction,
 } from '@/hooks/use-credit-cards'
 import { useAccounts } from '@/hooks/use-accounts'
@@ -253,14 +255,29 @@ const payInvoiceFormSchema = z.object({
 
 type PayInvoiceFormData = z.infer<typeof payInvoiceFormSchema>
 
+const settlementFormSchema = z.object({
+  accountId: z.string().min(1, 'Selecione a conta'),
+  downPayment: z.number().min(0).optional(),
+  installmentCount: z.number().int().min(1),
+  installmentAmount: z.number().positive(),
+  firstInstallmentMonth: z.number().int().min(1).max(12),
+  firstInstallmentYear: z.number().int().min(2000).max(2200),
+})
+
+type SettlementFormData = z.infer<typeof settlementFormSchema>
+
 function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAccountId?: string | null }) {
   const { data, isLoading } = useCreditCardInvoices(cardId)
   const payInvoice = usePayInvoice()
+  const createSettlement = useCreateInvoiceSettlement()
   const { data: accounts } = useAccounts()
   const { toast } = useToast()
 
   const [payDialog, setPayDialog] = useState<CreditCardInvoice | null>(null)
+  const [settlementDialog, setSettlementDialog] = useState<CreditCardInvoice | null>(null)
   const [detailInvoiceId, setDetailInvoiceId] = useState<string | null>(null)
+
+  const payStatementQuery = useCreditCardInvoiceStatement(cardId, payDialog?.id ?? '')
 
   const {
     register,
@@ -273,6 +290,24 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
     defaultValues: { accountId: '', amount: undefined },
   })
 
+  const {
+    register: registerSettlement,
+    control: controlSettlement,
+    handleSubmit: handleSubmitSettlement,
+    reset: resetSettlement,
+    formState: { errors: settlementErrors, isSubmitting: isSettlementSubmitting },
+  } = useForm<SettlementFormData>({
+    resolver: zodResolver(settlementFormSchema),
+    defaultValues: {
+      accountId: '',
+      downPayment: undefined,
+      installmentCount: 3,
+      installmentAmount: undefined,
+      firstInstallmentMonth: new Date().getMonth() + 1,
+      firstInstallmentYear: new Date().getFullYear(),
+    },
+  })
+
   useEffect(() => {
     if (payDialog) {
       reset({
@@ -281,6 +316,20 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
       })
     }
   }, [payDialog, reset, defaultAccountId])
+
+  useEffect(() => {
+    if (settlementDialog) {
+      const now = new Date()
+      resetSettlement({
+        accountId: defaultAccountId ?? '',
+        downPayment: undefined,
+        installmentCount: 3,
+        installmentAmount: undefined,
+        firstInstallmentMonth: now.getMonth() + 1,
+        firstInstallmentYear: now.getFullYear(),
+      })
+    }
+  }, [settlementDialog, defaultAccountId, resetSettlement])
 
   async function onPayConfirm(data: PayInvoiceFormData) {
     if (!payDialog) return
@@ -291,10 +340,30 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
         accountId: data.accountId,
         amount: data.amount !== undefined ? normalizeReaisForApi(data.amount) : undefined,
       })
-      toast('Fatura paga!', 'success')
+      toast('Pagamento registrado', 'success')
       setPayDialog(null)
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao pagar fatura', 'error')
+    }
+  }
+
+  async function onSettlementConfirm(data: SettlementFormData) {
+    if (!settlementDialog) return
+    try {
+      await createSettlement.mutateAsync({
+        cardId,
+        invoiceId: settlementDialog.id,
+        accountId: data.accountId,
+        downPayment: data.downPayment !== undefined ? normalizeReaisForApi(data.downPayment) : undefined,
+        installmentCount: data.installmentCount,
+        installmentAmount: normalizeReaisForApi(data.installmentAmount),
+        firstInstallmentMonth: data.firstInstallmentMonth,
+        firstInstallmentYear: data.firstInstallmentYear,
+      })
+      toast('Negociação criada com sucesso', 'success')
+      setSettlementDialog(null)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao negociar fatura', 'error')
     }
   }
 
@@ -339,6 +408,11 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                   {inv.status === 'PAID' && inv.paidAt && (
                     <p className="text-[10px] text-[#8DDBA4]">Pago em {formatDate(inv.paidAt)}</p>
                   )}
+                  {typeof inv.outstandingAmount === 'number' && inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Em aberto: <span className="font-mono tabular-nums">{formatCurrency(inv.outstandingAmount)}</span>
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-1 ml-3">
@@ -349,9 +423,10 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
-                {inv.status !== 'PAID' && (
-                  <Button size="sm" variant="outline" onClick={() => setPayDialog(inv)}>
-                    Pagar
+                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && <Button size="sm" variant="outline" onClick={() => setPayDialog(inv)}>Pagar</Button>}
+                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
+                  <Button size="sm" onClick={() => setSettlementDialog(inv)}>
+                    Negociar
                   </Button>
                 )}
               </div>
@@ -386,7 +461,13 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                   {getMonthName(payDialog.referenceMonth)} / {payDialog.referenceYear}
                 </p>
                 <p className="font-mono tabular-nums text-[#F08D8D] text-lg font-semibold">
-                  {formatCurrency(payDialog.totalAmount)}
+                  {formatCurrency(payStatementQuery.data?.breakdown.totalAmount ?? payDialog.totalAmount)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Em aberto:{' '}
+                  <span className="font-mono tabular-nums">
+                    {formatCurrency(payStatementQuery.data?.breakdown.outstandingAmount ?? payDialog.outstandingAmount ?? payDialog.totalAmount)}
+                  </span>
                 </p>
                 {payDialog.dueDate && (
                   <p className="text-xs text-muted-foreground mt-1">
@@ -414,7 +495,11 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                 render={({ field }) => (
                   <MoneyBrlInput
                     placeholder={
-                      payDialog ? formatBrlMoneyInputFromReais(payDialog.totalAmount) : '0,00'
+                      payDialog
+                        ? formatBrlMoneyInputFromReais(
+                            payStatementQuery.data?.breakdown.outstandingAmount ?? payDialog.outstandingAmount ?? payDialog.totalAmount,
+                          )
+                        : '0,00'
                     }
                     error={errors.amount?.message}
                     value={field.value}
@@ -441,6 +526,114 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
           </DialogFooter>
         </form>
       </Dialog>
+
+      {/* Dialog de negociação */}
+      <Dialog
+        open={!!settlementDialog}
+        onClose={() => setSettlementDialog(null)}
+        className="max-w-sm"
+        preventClose={createSettlement.isPending}
+      >
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmitSettlement(onSettlementConfirm)}>
+          <DialogHeader title="Negociar Fatura" onClose={() => setSettlementDialog(null)} />
+          <DialogBody className="space-y-4">
+            {settlementDialog && (
+              <div className="rounded-sm border border-border bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Saldo atual</p>
+                <p className="font-mono tabular-nums text-lg font-semibold text-[#F08D8D]">
+                  {formatCurrency(settlementDialog.outstandingAmount ?? settlementDialog.totalAmount)}
+                </p>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Conta para débito da entrada</Label>
+              <Select error={settlementErrors.accountId?.message} {...registerSettlement('accountId')}>
+                <option value="">Selecione uma conta</option>
+                {accounts?.filter((a) => a.isActive).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Entrada (opcional)</Label>
+              <Controller
+                name="downPayment"
+                control={controlSettlement}
+                render={({ field }) => (
+                  <MoneyBrlInput
+                    placeholder="0,00"
+                    error={settlementErrors.downPayment?.message}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                  />
+                )}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Qtd. parcelas</Label>
+                <Select error={settlementErrors.installmentCount?.message} {...registerSettlement('installmentCount', { valueAsNumber: true })}>
+                  {Array.from({ length: 24 }).map((_, i) => {
+                    const value = i + 1
+                    return <option key={value} value={value}>{value}x</option>
+                  })}
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Valor parcela</Label>
+                <Controller
+                  name="installmentAmount"
+                  control={controlSettlement}
+                  render={({ field }) => (
+                    <MoneyBrlInput
+                      placeholder="0,00"
+                      error={settlementErrors.installmentAmount?.message}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                    />
+                  )}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>1ª parcela mês</Label>
+                <Select error={settlementErrors.firstInstallmentMonth?.message} {...registerSettlement('firstInstallmentMonth', { valueAsNumber: true })}>
+                  {Array.from({ length: 12 }).map((_, i) => {
+                    const value = i + 1
+                    return <option key={value} value={value}>{getMonthName(value)}</option>
+                  })}
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>1ª parcela ano</Label>
+                <Select error={settlementErrors.firstInstallmentYear?.message} {...registerSettlement('firstInstallmentYear', { valueAsNumber: true })}>
+                  {Array.from({ length: 8 }).map((_, i) => {
+                    const value = new Date().getFullYear() + i
+                    return <option key={value} value={value}>{value}</option>
+                  })}
+                </Select>
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setSettlementDialog(null)}>
+              Cancelar
+            </Button>
+            <Button type="submit" isLoading={createSettlement.isPending || isSettlementSubmitting}>
+              Confirmar negociação
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
     </div>
   )
 }
@@ -456,7 +649,8 @@ function InvoiceDetailDialog({
   invoiceId: string
   onClose: () => void
 }) {
-  const { data: invoice, isLoading } = useCreditCardInvoice(cardId, invoiceId)
+  const { data: statement, isLoading } = useCreditCardInvoiceStatement(cardId, invoiceId)
+  const invoice = statement?.invoice
 
   return (
     <Dialog open onClose={onClose} className="max-w-lg">
@@ -480,9 +674,9 @@ function InvoiceDetailDialog({
             {/* Cabeçalho da fatura */}
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-sm border border-border bg-muted/50 p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total fatura</p>
                 <p className="font-mono tabular-nums font-semibold text-[#F08D8D]">
-                  {formatCurrency(invoice.totalAmount)}
+                  {formatCurrency(statement?.breakdown.totalAmount ?? invoice.totalAmount)}
                 </p>
               </div>
               <div className="rounded-sm border border-border bg-muted/50 p-3">
@@ -490,12 +684,39 @@ function InvoiceDetailDialog({
                 <div className="mt-0.5"><InvoiceStatusBadge status={invoice.status} /></div>
               </div>
               <div className="rounded-sm border border-border bg-muted/50 p-3">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Vencimento</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Saldo em aberto</p>
                 <p className={`text-xs font-medium tabular-nums ${isOverdue(invoice.dueDate) && invoice.status !== 'PAID' ? 'text-[#F08D8D]' : 'text-foreground'}`}>
-                  {formatCalendarDate(invoice.dueDate)}
+                  {formatCurrency(statement?.breakdown.outstandingAmount ?? invoice.outstandingAmount ?? 0)}
                 </p>
               </div>
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <BreakdownCard label="Total do ciclo" value={statement?.breakdown.cycleAmount ?? 0} />
+              <BreakdownCard label="Saldo carregado" value={statement?.breakdown.carriedAmount ?? 0} />
+              <BreakdownCard label="Parcelas negociadas" value={statement?.breakdown.negotiatedInstallmentAmount ?? 0} />
+              <BreakdownCard label="Pagamentos" value={statement?.breakdown.paymentAmount ?? 0} />
+            </div>
+
+            {statement?.settlement && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                  Plano da negociação
+                </p>
+                <div className="space-y-1">
+                  {statement.settlement.installments.map((inst) => (
+                    <div key={inst.id} className="flex items-center justify-between rounded-sm border border-border bg-muted/30 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">
+                        Parcela {inst.sequence} · {String(inst.dueReferenceMonth).padStart(2, '0')}/{inst.dueReferenceYear}
+                      </p>
+                      <p className="font-mono tabular-nums text-sm text-foreground">
+                        {formatCurrency(inst.amount)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Lista de lançamentos */}
             <div>
@@ -564,9 +785,36 @@ function InvoiceStatusBadge({ status }: { status: string }) {
         Fechada
       </span>
     )
+  if (status === 'PARTIAL')
+    return (
+      <span className="rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border bg-[#1E2230] text-[#9FB3FF] border-[#47598F]">
+        Parcial
+      </span>
+    )
+  if (status === 'OVERDUE')
+    return (
+      <span className="rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border bg-[#2A1212] text-[#F08D8D] border-[#7A2A2A]">
+        Atrasada
+      </span>
+    )
+  if (status === 'RENEGOTIATED')
+    return (
+      <span className="rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border bg-[#1A1430] text-[#C6A7FF] border-[#5B4596]">
+        Renegociada
+      </span>
+    )
   return (
     <span className="rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide border bg-[#10202A] text-[#86C3E6] border-[#28546A]">
       Aberta
     </span>
+  )
+}
+
+function BreakdownCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-sm border border-border bg-muted/50 p-3">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
+      <p className="font-mono tabular-nums text-sm text-foreground">{formatCurrency(value)}</p>
+    </div>
   )
 }

@@ -25,7 +25,7 @@ export const updateCreditCardSchema = z.object({
 export const listInvoicesSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(24).default(12),
-  status: z.enum(['OPEN', 'CLOSED', 'PAID']).optional(),
+  status: z.enum(['OPEN', 'CLOSED', 'PARTIAL', 'OVERDUE', 'RENEGOTIATED', 'PAID']).optional(),
 })
 
 export const payInvoiceSchema = z.object({
@@ -33,7 +33,17 @@ export const payInvoiceSchema = z.object({
   amount: z.number().positive('Valor deve ser positivo').optional(),
 })
 
+export const createInvoiceSettlementSchema = z.object({
+  accountId: z.string().uuid('ID de conta inválido'),
+  downPayment: z.number().min(0, 'Entrada não pode ser negativa').default(0),
+  installmentCount: z.number().int().min(1).max(72),
+  installmentAmount: z.number().positive('Valor da parcela deve ser positivo'),
+  firstInstallmentMonth: z.number().int().min(1).max(12),
+  firstInstallmentYear: z.number().int().min(2000).max(2200),
+})
+
 export type CreateCreditCardInput = z.infer<typeof createCreditCardSchema>
 export type UpdateCreditCardInput = z.infer<typeof updateCreditCardSchema>
 export type ListInvoicesInput = z.infer<typeof listInvoicesSchema>
 export type PayInvoiceInput = z.infer<typeof payInvoiceSchema>
+export type CreateInvoiceSettlementInput = z.infer<typeof createInvoiceSettlementSchema>
