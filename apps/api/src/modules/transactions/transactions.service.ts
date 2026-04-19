@@ -479,8 +479,6 @@ export async function getExpenseCategorySummary(
         }
       : {}
 
-  const recognitionInExpense = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
-
   const [expenses, reimbursements] = await Promise.all([
     prisma.transaction.findMany({
       where: {
@@ -488,7 +486,7 @@ export async function getExpenseCategorySummary(
         type: 'EXPENSE',
         nature: 'NORMAL',
         status: 'CONFIRMED',
-        recognition: { in: recognitionInExpense },
+        recognition: 'OPERATIONAL',
         ...dateFilter,
       },
       select: {
@@ -503,7 +501,7 @@ export async function getExpenseCategorySummary(
         type: 'INCOME',
         nature: 'REIMBURSEMENT',
         status: 'CONFIRMED',
-        recognition: { in: recognitionInExpense },
+        recognition: 'OPERATIONAL',
         ...dateFilter,
         linkedTransaction: {
           type: 'EXPENSE',
@@ -591,19 +589,17 @@ export async function getDashboardSummary(familyId: string, query: DashboardSumm
         }
       : {}
 
-  const recognitionInExpense = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
-
   const baseWhere = {
     familyId,
     status: 'CONFIRMED' as const,
-    recognition: { in: recognitionInExpense },
+    recognition: 'OPERATIONAL' as const,
     ...(query.liquidated !== undefined ? { liquidated: query.liquidated } : {}),
     ...dateFilter,
   }
 
   const [grossIncomeAgg, grossExpenseAgg, expenseReimbursementsAgg, incomeReversalsAgg] = await Promise.all([
     prisma.transaction.aggregate({
-      where: { ...baseWhere, type: 'INCOME', nature: 'NORMAL', recognition: 'OPERATIONAL' },
+      where: { ...baseWhere, type: 'INCOME', nature: 'NORMAL' },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
@@ -611,7 +607,6 @@ export async function getDashboardSummary(familyId: string, query: DashboardSumm
         ...baseWhere,
         type: 'EXPENSE',
         nature: 'NORMAL',
-        recognition: { in: recognitionInExpense },
       },
       _sum: { amount: true },
     }),

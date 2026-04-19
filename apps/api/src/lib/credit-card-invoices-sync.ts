@@ -106,7 +106,8 @@ async function collectInvoicePayments(cardId: string): Promise<Map<string, numbe
   const rows = await prisma.transaction.groupBy({
     by: ['creditCardInvoiceId'],
     where: {
-      creditCardId: cardId,
+      /** Pagamentos saem da conta corrente: podem não ter `creditCardId` no lançamento; amarramos pela fatura. */
+      creditCardInvoice: { creditCardId: cardId },
       creditCardInvoiceId: { not: null },
       recognition: 'INVOICE_PAYMENT',
       status: { not: 'DELETED' },

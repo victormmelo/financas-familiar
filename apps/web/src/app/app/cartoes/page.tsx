@@ -387,7 +387,16 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
           {invoices.map((inv) => (
             <div
               key={inv.id}
-              className="flex items-center justify-between py-3 px-3 rounded-sm bg-muted/50 border border-border hover:bg-accent/30 transition-colors"
+              className="flex items-center justify-between py-3 px-3 rounded-sm bg-muted/50 border border-border hover:bg-accent/30 transition-colors cursor-pointer"
+              role="button"
+              tabIndex={0}
+              onClick={() => setDetailInvoiceId(inv.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setDetailInvoiceId(inv.id)
+                }
+              }}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -418,14 +427,34 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
               <div className="flex items-center gap-1 ml-3">
                 <button
                   className="p-1.5 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
-                  onClick={() => setDetailInvoiceId(inv.id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDetailInvoiceId(inv.id)
+                  }}
                   title="Ver lançamentos"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
-                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && <Button size="sm" variant="outline" onClick={() => setPayDialog(inv)}>Pagar</Button>}
                 {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
-                  <Button size="sm" onClick={() => setSettlementDialog(inv)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setPayDialog(inv)
+                    }}
+                  >
+                    Pagar
+                  </Button>
+                )}
+                {inv.status !== 'PAID' && inv.status !== 'RENEGOTIATED' && (
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSettlementDialog(inv)
+                    }}
+                  >
                     Negociar
                   </Button>
                 )}

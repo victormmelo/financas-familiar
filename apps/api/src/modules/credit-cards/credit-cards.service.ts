@@ -197,18 +197,19 @@ async function getLedgerLineOrThrow(familyId: string, cardId: string, invoiceId:
 }
 
 export async function getInvoiceStatement(familyId: string, cardId: string, invoiceId: string) {
-  const [{ card, line }, invoice, payments, settlement] = await Promise.all([
-    getLedgerLineOrThrow(familyId, cardId, invoiceId),
+  const { card, line } = await getLedgerLineOrThrow(familyId, cardId, invoiceId)
+
+  const [invoice, payments, settlement, transactions] = await Promise.all([
     prisma.creditCardInvoice.findFirst({
       where: { id: invoiceId, creditCardId: cardId },
       include: { paidFromAccount: { select: { id: true, name: true } } },
     }),
     prisma.transaction.findMany({
       where: {
-        creditCardId: cardId,
         creditCardInvoiceId: invoiceId,
         recognition: 'INVOICE_PAYMENT',
         status: { not: 'DELETED' },
+        creditCardInvoice: { id: invoiceId, creditCardId: cardId },
       },
       orderBy: { date: 'desc' },
       include: { account: { select: { id: true, name: true } } },
@@ -216,6 +217,17 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
     prisma.creditCardInvoiceSettlement.findFirst({
       where: { invoiceId, creditCardId: cardId },
       include: { installments: { orderBy: { sequence: 'asc' } } },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        creditCardId: cardId,
+        status: { not: 'DELETED' },
+        date: monthDateRange(line.referenceYear, line.referenceMonth),
+      },
+      include: {
+        category: { select: { id: true, name: true, type: true } },
+      },
+      orderBy: { date: 'desc' },
     }),
   ])
 
@@ -225,6 +237,7 @@ export async function getInvoiceStatement(familyId: string, cardId: string, invo
     invoice: {
       ...invoice,
       dueDate: calculateDueDate(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
+      transactions: transactions.map(wireTransactionDate),
     },
     breakdown: {
       cycleAmount: line.cycleAmount,
@@ -375,6 +388,7 @@ export async function payInvoice(
         date: new Date(),
         source: 'MANUAL',
         recognition: 'INVOICE_PAYMENT',
+        creditCardId: cardId,
         creditCardInvoiceId: invoiceId,
         confirmedAt: new Date(),
         liquidated: true,
@@ -491,6 +505,7 @@ export async function createInvoiceSettlement(
           date: new Date(),
           source: 'MANUAL',
           recognition: 'INVOICE_PAYMENT',
+          creditCardId: cardId,
           creditCardInvoiceId: invoiceId,
           confirmedAt: new Date(),
           liquidated: true,

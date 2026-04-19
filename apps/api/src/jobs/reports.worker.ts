@@ -136,13 +136,11 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
       const start = new Date(year, month - 1, 1)
       const end = new Date(year, month, 1)
 
-      const recognitionInCashflow = [...(['OPERATIONAL', 'INVOICE_PAYMENT'] as const)]
-
       const baseWhere = {
         familyId,
         status: 'CONFIRMED' as const,
         liquidated: true,
-        recognition: { in: recognitionInCashflow },
+        recognition: 'OPERATIONAL' as const,
         date: { gte: start, lt: end },
       }
 
@@ -152,7 +150,6 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
             ...baseWhere,
             type: 'INCOME',
             nature: 'NORMAL',
-            recognition: 'OPERATIONAL',
           },
           _sum: { amount: true },
         }),
@@ -161,7 +158,6 @@ async function generateCashFlow(familyId: string, params: ReportJobData['params'
             ...baseWhere,
             type: 'EXPENSE',
             nature: 'NORMAL',
-            recognition: { in: ['OPERATIONAL', 'INVOICE_PAYMENT'] },
           },
           _sum: { amount: true },
         }),
