@@ -1,4 +1,4 @@
-import { parsePlainDate } from '@financas/shared-types'
+import { parsePlainDate, wireTransactionDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { randomUUID } from 'crypto'
 import { RRule } from 'rrule'
@@ -344,7 +344,7 @@ export async function listTransactions(familyId: string, query: ListTransactions
   const data = await appendReimbursementMetrics(familyId, transactions)
 
   return {
-    data,
+    data: data.map(wireTransactionDate),
     pagination: {
       page,
       limit,
@@ -396,7 +396,7 @@ export async function getTransaction(familyId: string, transactionId: string) {
   })
   if (!transaction) throw Object.assign(new Error('Transação não encontrada'), { statusCode: 404 })
   const [withMetrics] = await appendReimbursementMetrics(familyId, [transaction])
-  return withMetrics
+  return wireTransactionDate(withMetrics)
 }
 
 export async function getReimbursementContext(familyId: string, transactionId: string) {
@@ -443,18 +443,20 @@ export async function getReimbursementContext(familyId: string, transactionId: s
   const suggestedReimbursementType = transaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE'
 
   return {
-    transaction: {
+    transaction: wireTransactionDate({
       ...transaction,
       reimbursedAmount,
       remainingReimbursableAmount,
       netAmount: originalAmount - reimbursedAmount,
-    },
-    reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) => ({
-      ...tx,
-      reimbursedAmount: 0,
-      remainingReimbursableAmount: 0,
-      netAmount: decimalToNumber(tx.amount),
-    })),
+    }),
+    reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) =>
+      wireTransactionDate({
+        ...tx,
+        reimbursedAmount: 0,
+        remainingReimbursableAmount: 0,
+        netAmount: decimalToNumber(tx.amount),
+      }),
+    ),
     suggested: {
       type: suggestedReimbursementType,
       categoryId: transaction.categoryId,
@@ -756,7 +758,7 @@ export async function createTransaction(familyId: string, userId: string, input:
   }
 
   const [withMetrics] = await appendReimbursementMetrics(familyId, [transaction])
-  return withMetrics
+  return wireTransactionDate(withMetrics)
 }
 
 /**
@@ -831,7 +833,11 @@ export async function createInstallmentTransaction(
     }),
   )
 
-  return { installmentGroupId, installmentCount: input.installmentCount, transactions }
+  return {
+    installmentGroupId,
+    installmentCount: input.installmentCount,
+    transactions: transactions.map(wireTransactionDate),
+  }
 }
 
 /** Lista todos os templates de recorrência da família (isRecurring=true). */
@@ -873,7 +879,7 @@ export async function listRecurringTemplates(familyId: string) {
         // rrule inválida — ignora
       }
     }
-    return { ...t, nextOccurrences }
+    return wireTransactionDate({ ...t, nextOccurrences })
   })
 }
 
@@ -941,7 +947,7 @@ export async function confirmTransaction(familyId: string, transactionId: string
     },
   })
   const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
-  return withMetrics
+  return wireTransactionDate(withMetrics)
 }
 
 export async function bulkConfirm(familyId: string, input: BulkConfirmInput) {
@@ -1132,7 +1138,7 @@ export async function updateTransaction(familyId: string, transactionId: string,
     },
   })
   const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
-  return withMetrics
+  return wireTransactionDate(withMetrics)
 }
 
 export async function deleteTransaction(familyId: string, transactionId: string) {
@@ -1179,7 +1185,7 @@ export async function restoreTransaction(familyId: string, transactionId: string
   })
 
   const [withMetrics] = await appendReimbursementMetrics(familyId, [restored])
-  return withMetrics
+  return wireTransactionDate(withMetrics)
 }
 
 export async function permanentlyDeleteTransaction(familyId: string, transactionId: string) {

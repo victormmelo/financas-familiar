@@ -1,5 +1,5 @@
 import type { Multipart, MultipartValue } from '@fastify/multipart'
-import { parsePlainDate } from '@financas/shared-types'
+import { parsePlainDate, serializeDbDate, wireTransactionDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { calculateBalance } from '../accounts/accounts.service.js'
 import { parseOFX } from './reconciliation.parser.ofx.js'
@@ -12,6 +12,18 @@ import type {
   AcceptMatchInput,
   ConvertItemInput,
 } from './reconciliation.schema.js'
+
+function wireStatementItemRow<T extends { date: Date; matchedTransaction: { date: Date } | null }>(
+  item: T,
+) {
+  return {
+    ...item,
+    date: serializeDbDate(item.date),
+    matchedTransaction: item.matchedTransaction
+      ? { ...item.matchedTransaction, date: serializeDbDate(item.matchedTransaction.date) }
+      : null,
+  }
+}
 
 // ─── Import Statement ─────────────────────────────────────────────────────────
 
@@ -147,7 +159,7 @@ export async function createStatementItem(familyId: string, input: CreateStateme
   const account = await prisma.account.findFirst({ where: { id: input.accountId, familyId } })
   if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
 
-  return prisma.statementItem.create({
+  const row = await prisma.statementItem.create({
     data: {
       familyId,
       accountId: input.accountId,
@@ -165,6 +177,7 @@ export async function createStatementItem(familyId: string, input: CreateStateme
       },
     },
   })
+  return wireStatementItemRow(row)
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────────
@@ -202,7 +215,7 @@ export async function listStatementItems(familyId: string, query: ListStatementI
   ])
 
   return {
-    data: items,
+    data: items.map(wireStatementItemRow),
     meta: {
       total,
       page: query.page,
@@ -218,10 +231,11 @@ export async function deleteStatementItem(familyId: string, id: string) {
   const item = await prisma.statementItem.findFirst({ where: { id, familyId } })
   if (!item) throw Object.assign(new Error('Item não encontrado'), { statusCode: 404 })
 
-  return prisma.statementItem.update({
+  const row = await prisma.statementItem.update({
     where: { id },
     data: { status: 'IGNORED', ignoredAt: new Date() },
   })
+  return { ...row, date: serializeDbDate(row.date) }
 }
 
 // ─── Run Matching ─────────────────────────────────────────────────────────────
@@ -255,7 +269,7 @@ export async function acceptMatch(familyId: string, itemId: string, input: Accep
     )
   }
 
-  return prisma.statementItem.update({
+  const row = await prisma.statementItem.update({
     where: { id: itemId },
     data: { status: 'MATCHED', matchedTransactionId: input.transactionId },
     include: {
@@ -264,6 +278,7 @@ export async function acceptMatch(familyId: string, itemId: string, input: Accep
       },
     },
   })
+  return wireStatementItemRow(row)
 }
 
 // ─── Reject Match ─────────────────────────────────────────────────────────────
@@ -275,10 +290,11 @@ export async function rejectMatch(familyId: string, itemId: string) {
     throw Object.assign(new Error('Item não tem sugestão de match'), { statusCode: 422 })
   }
 
-  return prisma.statementItem.update({
+  const row = await prisma.statementItem.update({
     where: { id: itemId },
     data: { status: 'REJECTED', matchedTransactionId: null, matchScore: null },
   })
+  return { ...row, date: serializeDbDate(row.date) }
 }
 
 // ─── Ignore Item ──────────────────────────────────────────────────────────────
@@ -287,10 +303,11 @@ export async function ignoreItem(familyId: string, itemId: string) {
   const item = await prisma.statementItem.findFirst({ where: { id: itemId, familyId } })
   if (!item) throw Object.assign(new Error('Item não encontrado'), { statusCode: 404 })
 
-  return prisma.statementItem.update({
+  const row = await prisma.statementItem.update({
     where: { id: itemId },
     data: { status: 'IGNORED', ignoredAt: new Date() },
   })
+  return { ...row, date: serializeDbDate(row.date) }
 }
 
 // ─── Convert to Transaction ───────────────────────────────────────────────────
@@ -361,7 +378,7 @@ export async function convertItem(
     },
   })
 
-  return transaction
+  return wireTransactionDate(transaction)
 }
 
 // ─── Balance Summary ──────────────────────────────────────────────────────────

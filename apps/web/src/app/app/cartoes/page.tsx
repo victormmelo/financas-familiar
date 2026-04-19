@@ -28,7 +28,7 @@ import {
 } from '@/hooks/use-credit-cards'
 import { useAccounts } from '@/hooks/use-accounts'
 import { useToast } from '@/components/ui/toast'
-import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate, formatDate, getMonthName } from '@/lib/utils'
 import { formatBrlMoneyInputFromReais, normalizeReaisForApi } from '@financas/shared-types'
 
 export default function CartoesPage() {
@@ -332,7 +332,7 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                   {inv.dueDate && inv.status !== 'PAID' && (
                     <p className="text-[10px] text-muted-foreground">
                       Venc. <span className={isOverdue(inv.dueDate) ? 'text-[#F08D8D] font-medium' : ''}>
-                        {formatDate(inv.dueDate)}
+                        {formatCalendarDate(inv.dueDate)}
                       </span>
                     </p>
                   )}
@@ -390,7 +390,7 @@ function InvoiceList({ cardId, defaultAccountId }: { cardId: string; defaultAcco
                 </p>
                 {payDialog.dueDate && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Vencimento: <span className={isOverdue(payDialog.dueDate) ? 'text-[#F08D8D]' : ''}>{formatDate(payDialog.dueDate)}</span>
+                    Vencimento: <span className={isOverdue(payDialog.dueDate) ? 'text-[#F08D8D]' : ''}>{formatCalendarDate(payDialog.dueDate)}</span>
                   </p>
                 )}
               </div>
@@ -492,7 +492,7 @@ function InvoiceDetailDialog({
               <div className="rounded-sm border border-border bg-muted/50 p-3">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Vencimento</p>
                 <p className={`text-xs font-medium tabular-nums ${isOverdue(invoice.dueDate) && invoice.status !== 'PAID' ? 'text-[#F08D8D]' : 'text-foreground'}`}>
-                  {formatDate(invoice.dueDate)}
+                  {formatCalendarDate(invoice.dueDate)}
                 </p>
               </div>
             </div>
@@ -514,7 +514,7 @@ function InvoiceDetailDialog({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground truncate">{t.description}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[10px] font-mono text-muted-foreground">{formatDate(t.date)}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">{formatCalendarDate(t.date)}</p>
                           {t.category && (
                             <span className="text-[10px] text-muted-foreground">{t.category.name}</span>
                           )}

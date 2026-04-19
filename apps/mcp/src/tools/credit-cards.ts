@@ -1,3 +1,4 @@
+import { wireTransactionDate } from '@financas/shared-types'
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
@@ -134,7 +135,9 @@ export function registerCreditCardHandlers(
         ? { ...invoice, totalAmount: Number(invoice.totalAmount) }
         : { status: 'OPEN', totalAmount: total },
       period: { from: startDate.toISOString().slice(0, 10), to: endDate.toISOString().slice(0, 10) },
-      transactions: transactions.map((t: (typeof transactions)[number]) => ({ ...t, amount: Number(t.amount) })),
+      transactions: transactions.map((t: (typeof transactions)[number]) =>
+        wireTransactionDate({ ...t, amount: Number(t.amount) }),
+      ),
       totalSpent: total,
       availableLimit: Number(card.limit) - total,
     }

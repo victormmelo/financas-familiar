@@ -39,7 +39,7 @@ import {
 import { useAccounts } from '@/hooks/use-accounts'
 import { useCategories } from '@/hooks/use-categories'
 import { useToast } from '@/components/ui/toast'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate, cn } from '@/lib/utils'
 import { EntryLaunchContextBar } from '@/components/layout/entry-launch-context-bar'
 import { flattenLeafCategoriesForSelect } from '@/lib/category-select-options'
 
@@ -370,7 +370,7 @@ export default function TransacoesPage() {
         </div>
         {hasPeriodRange && (
           <p className="font-mono text-xs text-muted-foreground tabular-nums">
-            Período: {formatDate(filters.startDate!)} — {formatDate(filters.endDate!)}
+            Período: {formatCalendarDate(filters.startDate!)} — {formatCalendarDate(filters.endDate!)}
           </p>
         )}
       </div>
@@ -563,7 +563,7 @@ export default function TransacoesPage() {
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <span className="whitespace-nowrap font-mono text-sm tabular-nums text-secondary-foreground">
-                            {formatDate(t.date)}
+                            {formatCalendarDate(t.date)}
                           </span>
                           <TransactionAmount t={t} />
                         </div>
@@ -683,7 +683,7 @@ export default function TransacoesPage() {
                             />
                           )}
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatDate(t.date)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatCalendarDate(t.date)}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-foreground">{t.description}</p>
                           {(() => {

@@ -1,3 +1,4 @@
+import { serializeDbDateOrNull } from '@financas/shared-types'
 import { prisma } from '../prisma.js'
 import type { McpContext } from '../context.js'
 import { withMcpToolOAuth } from '../mcp-scopes.js'
@@ -50,7 +51,7 @@ export function registerGoalHandlers(
           currentAmount: current,
           remaining,
           progressPercent,
-          deadline: g.deadline?.toISOString().slice(0, 10) ?? null,
+          deadline: serializeDbDateOrNull(g.deadline),
           isCompleted: g.isCompleted,
           account: g.account,
           icon: g.icon,

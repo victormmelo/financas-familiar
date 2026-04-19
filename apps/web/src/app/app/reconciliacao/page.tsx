@@ -22,7 +22,7 @@ import {
   useRunMatching,
 } from '@/hooks/use-reconciliation'
 import { useToast } from '@/components/ui/toast'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { StatementItem, StatementItemStatus } from '@financas/shared-types'
 
@@ -323,7 +323,7 @@ function ImportTab() {
                       return (
                         <tr key={item.id} className="border-b transition-colors hover:bg-muted/30">
                           <td className="px-4 py-3 text-muted-foreground">
-                            {formatDate(item.date)}
+                            {formatCalendarDate(item.date)}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-0.5">

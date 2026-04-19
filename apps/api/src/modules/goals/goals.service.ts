@@ -1,4 +1,4 @@
-import { parsePlainDate } from '@financas/shared-types'
+import { parsePlainDate, wireGoalDeadline } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { calculateBalance } from '../accounts/accounts.service.js'
 import type { CreateGoalInput, UpdateGoalInput } from './goals.schema.js'
@@ -27,12 +27,12 @@ export async function listGoals(familyId: string) {
         ? await calculateBalance(goal.accountId)
         : undefined
       const progress = computeProgress({ ...goal, accountBalance })
-      return {
+      return wireGoalDeadline({
         ...goal,
         currentAmount: progress.current,
         targetAmount: progress.target,
         progressPercent: progress.percentage,
-      }
+      })
     }),
   )
 }
@@ -46,12 +46,12 @@ export async function getGoal(familyId: string, goalId: string) {
 
   const accountBalance = goal.accountId ? await calculateBalance(goal.accountId) : undefined
   const progress = computeProgress({ ...goal, accountBalance })
-  return {
+  return wireGoalDeadline({
     ...goal,
     currentAmount: progress.current,
     targetAmount: progress.target,
     progressPercent: progress.percentage,
-  }
+  })
 }
 
 export async function createGoal(familyId: string, input: CreateGoalInput) {
@@ -60,7 +60,7 @@ export async function createGoal(familyId: string, input: CreateGoalInput) {
     if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
   }
 
-  return prisma.goal.create({
+  const row = await prisma.goal.create({
     data: {
       familyId,
       name: input.name,
@@ -73,6 +73,7 @@ export async function createGoal(familyId: string, input: CreateGoalInput) {
     },
     include: { account: { select: { id: true, name: true } } },
   })
+  return wireGoalDeadline(row)
 }
 
 export async function updateGoal(familyId: string, goalId: string, input: UpdateGoalInput) {
@@ -84,7 +85,7 @@ export async function updateGoal(familyId: string, goalId: string, input: Update
     if (!account) throw Object.assign(new Error('Conta não encontrada'), { statusCode: 404 })
   }
 
-  return prisma.goal.update({
+  const row = await prisma.goal.update({
     where: { id: goalId },
     data: {
       ...(input.name !== undefined && { name: input.name }),
@@ -99,6 +100,7 @@ export async function updateGoal(familyId: string, goalId: string, input: Update
     },
     include: { account: { select: { id: true, name: true } } },
   })
+  return wireGoalDeadline(row)
 }
 
 export async function completeGoal(familyId: string, goalId: string) {
@@ -107,14 +109,16 @@ export async function completeGoal(familyId: string, goalId: string) {
   if (goal.isCompleted)
     throw Object.assign(new Error('Meta já está concluída'), { statusCode: 409 })
 
-  return prisma.goal.update({
+  const row = await prisma.goal.update({
     where: { id: goalId },
     data: { isCompleted: true },
   })
+  return wireGoalDeadline(row)
 }
 
 export async function deleteGoal(familyId: string, goalId: string) {
   const goal = await prisma.goal.findFirst({ where: { id: goalId, familyId } })
   if (!goal) throw Object.assign(new Error('Meta não encontrada'), { statusCode: 404 })
-  return prisma.goal.delete({ where: { id: goalId } })
+  const row = await prisma.goal.delete({ where: { id: goalId } })
+  return wireGoalDeadline(row)
 }

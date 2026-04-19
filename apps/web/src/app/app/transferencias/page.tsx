@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TransferForm } from '@/components/forms/transfer-form'
 import { useTransfers, type TransferFilters } from '@/hooks/use-transfers'
 import { useAccounts } from '@/hooks/use-accounts'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate, cn } from '@/lib/utils'
 
 const filterSelectClass =
   'h-10 min-h-10 w-full text-sm md:h-8 md:min-h-0'
@@ -164,7 +164,7 @@ export default function TransferenciasPage() {
         </div>
         {hasPeriodRange && (
           <p className="px-0 font-mono text-xs text-muted-foreground tabular-nums">
-            Período: {formatDate(filters.startDate!)} — {formatDate(filters.endDate!)}
+            Período: {formatCalendarDate(filters.startDate!)} — {formatCalendarDate(filters.endDate!)}
           </p>
         )}
       </div>
@@ -231,7 +231,7 @@ export default function TransferenciasPage() {
                         <span>{t.toAccount?.name ?? '—'}</span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(t.date)}
+                        {formatCalendarDate(t.date)}
                         {t.description ? ` · ${t.description}` : ''}
                       </p>
                     </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getAppCalendarTimeZone, parsePlainDate } from './plain-date'
+import { getAppCalendarTimeZone, parsePlainDate, serializeDbDate, wireTransactionDate } from './plain-date'
 
 describe('parsePlainDate', () => {
   it('interpreta YYYY-MM-DD em America/Sao_Paulo como meia-noite local (UTC-3)', () => {
@@ -28,5 +28,16 @@ describe('parsePlainDate', () => {
       if (prev === undefined) delete process.env.APP_CALENDAR_TIMEZONE
       else process.env.APP_CALENDAR_TIMEZONE = prev
     }
+  })
+})
+
+describe('serializeDbDate', () => {
+  it('serializa DATE PostgreSQL (meia-noite UTC) como YYYY-MM-DD', () => {
+    expect(serializeDbDate(new Date('2026-04-18T00:00:00.000Z'))).toBe('2026-04-18')
+  })
+
+  it('wireTransactionDate substitui date por string na resposta', () => {
+    const row = { id: 'x', date: new Date('2026-04-18T00:00:00.000Z'), amount: 1 }
+    expect(wireTransactionDate(row)).toEqual({ id: 'x', date: '2026-04-18', amount: 1 })
   })
 })

@@ -16,7 +16,7 @@ import { useGoals } from '@/hooks/use-goals'
 import { api } from '@/lib/api'
 import {
   formatCurrency,
-  formatDate,
+  formatCalendarDate,
   currentMonth,
   getMonthName,
   lastDayOfMonth,
@@ -497,7 +497,7 @@ function DashboardContent() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">{t.description}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {t.account?.name} · {formatDate(t.date)}
+                        {t.account?.name} · {formatCalendarDate(t.date)}
                       </p>
                     </div>
                   </div>

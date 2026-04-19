@@ -655,7 +655,15 @@ export {
   reaisNumberToCents,
 } from './money-brl'
 
-export { getAppCalendarTimeZone, parsePlainDate, PLAIN_DATE_RE } from './plain-date'
+export {
+  getAppCalendarTimeZone,
+  parsePlainDate,
+  PLAIN_DATE_RE,
+  serializeDbDate,
+  serializeDbDateOrNull,
+  wireGoalDeadline,
+  wireTransactionDate,
+} from './plain-date'
 
 // ─── API Error ────────────────────────────────────────────────────────────────
 

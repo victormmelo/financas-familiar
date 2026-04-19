@@ -1,4 +1,4 @@
-import { parsePlainDate } from '@financas/shared-types'
+import { parsePlainDate, wireTransactionDate } from '@financas/shared-types'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../prisma.js'
@@ -481,13 +481,15 @@ export function registerTransactionHandlers(
     const withMetrics = await appendReimbursementMetrics(familyId, transactions)
 
     return {
-      transactions: withMetrics.map((t: (typeof withMetrics)[number]) => ({
-        ...t,
-        amount: decimalToNumber(t.amount),
-        linkedTransaction: t.linkedTransaction
-          ? { ...t.linkedTransaction, amount: decimalToNumber(t.linkedTransaction.amount) }
-          : null,
-      })),
+      transactions: withMetrics.map((t: (typeof withMetrics)[number]) =>
+        wireTransactionDate({
+          ...t,
+          amount: decimalToNumber(t.amount),
+          linkedTransaction: t.linkedTransaction
+            ? { ...t.linkedTransaction, amount: decimalToNumber(t.linkedTransaction.amount) }
+            : null,
+        }),
+      ),
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     }
   })
@@ -536,7 +538,7 @@ export function registerTransactionHandlers(
     })
     if (!t) throw new Error('Transação não encontrada')
     const [withMetrics] = await appendReimbursementMetrics(familyId, [t])
-    return {
+    return wireTransactionDate({
       ...withMetrics,
       amount: decimalToNumber(withMetrics.amount),
       linkedTransaction: withMetrics.linkedTransaction
@@ -545,7 +547,7 @@ export function registerTransactionHandlers(
             amount: decimalToNumber(withMetrics.linkedTransaction.amount),
           }
         : null,
-    }
+    })
   })
 
   toolHandlerMap.set('get_reimbursement_context', async (args) => {
@@ -585,20 +587,22 @@ export function registerTransactionHandlers(
     const originalAmount = decimalToNumber(transaction.amount)
 
     return {
-      transaction: {
+      transaction: wireTransactionDate({
         ...transaction,
         amount: originalAmount,
         reimbursedAmount,
         remainingReimbursableAmount: Math.max(originalAmount - reimbursedAmount, 0),
         netAmount: originalAmount - reimbursedAmount,
-      },
-      reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) => ({
-        ...tx,
-        amount: decimalToNumber(tx.amount),
-        reimbursedAmount: 0,
-        remainingReimbursableAmount: 0,
-        netAmount: decimalToNumber(tx.amount),
-      })),
+      }),
+      reimbursements: reimbursements.map((tx: (typeof reimbursements)[number]) =>
+        wireTransactionDate({
+          ...tx,
+          amount: decimalToNumber(tx.amount),
+          reimbursedAmount: 0,
+          remainingReimbursableAmount: 0,
+          netAmount: decimalToNumber(tx.amount),
+        }),
+      ),
       suggested: {
         type: transaction.type === 'EXPENSE' ? 'INCOME' : 'EXPENSE',
         categoryId: transaction.categoryId,
@@ -689,13 +693,13 @@ export function registerTransactionHandlers(
       },
     })
     const [withMetrics] = await appendReimbursementMetrics(familyId, [t])
-    return {
+    return wireTransactionDate({
       ...withMetrics,
       amount: decimalToNumber(withMetrics.amount),
       linkedTransaction: withMetrics.linkedTransaction
         ? { ...withMetrics.linkedTransaction, amount: decimalToNumber(withMetrics.linkedTransaction.amount) }
         : null,
-    }
+    })
   })
 
   toolHandlerMap.set('confirm_transaction', async (args) => {
@@ -710,7 +714,7 @@ export function registerTransactionHandlers(
       where: { id },
       data: { status: 'CONFIRMED', confirmedAt: new Date() },
     })
-    return { ...updated, amount: Number(updated.amount) }
+    return wireTransactionDate({ ...updated, amount: Number(updated.amount) })
   })
 
   toolHandlerMap.set('bulk_confirm_transactions', async (args) => {
@@ -815,13 +819,13 @@ export function registerTransactionHandlers(
       },
     })
     const [withMetrics] = await appendReimbursementMetrics(familyId, [updated])
-    return {
+    return wireTransactionDate({
       ...withMetrics,
       amount: decimalToNumber(withMetrics.amount),
       linkedTransaction: withMetrics.linkedTransaction
         ? { ...withMetrics.linkedTransaction, amount: decimalToNumber(withMetrics.linkedTransaction.amount) }
         : null,
-    }
+    })
   })
 
   toolHandlerMap.set('delete_transaction', async (args) => {
@@ -866,7 +870,9 @@ export function registerTransactionHandlers(
     })
 
     return {
-      transactions: transactions.map((t: (typeof transactions)[number]) => ({ ...t, amount: Number(t.amount) })),
+      transactions: transactions.map((t: (typeof transactions)[number]) =>
+        wireTransactionDate({ ...t, amount: Number(t.amount) }),
+      ),
       count: transactions.length,
     }
   })

@@ -1,3 +1,4 @@
+import { wireTransactionDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { netCardSpendingInPeriod } from '../../lib/credit-card-spending.js'
 import type { Prisma } from '@prisma/client'
@@ -186,7 +187,7 @@ export async function getInvoice(familyId: string, cardId: string, invoiceId: st
   return {
     ...invoice,
     dueDate: calculateDueDate(invoice.referenceMonth, invoice.referenceYear, card.dueDay),
-    transactions,
+    transactions: transactions.map(wireTransactionDate),
   }
 }
 
@@ -236,7 +237,7 @@ export async function getCurrentInvoice(familyId: string, cardId: string) {
   return {
     ...invoice,
     dueDate: calculateDueDate(month, year, card.dueDay),
-    transactions,
+    transactions: transactions.map(wireTransactionDate),
   }
 }
 

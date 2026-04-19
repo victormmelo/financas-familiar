@@ -47,6 +47,26 @@ export function toPlainDateInputValue(raw: string): string {
   return m ? m[1] : ''
 }
 
+/**
+ * Formata data civil para pt-BR sem deslocar o dia (ex.: ISO `…T00:00:00.000Z` do Prisma `@db.Date`).
+ * Use `formatDate` para instantes reais (`createdAt`, `paidAt`, etc.).
+ */
+export function formatCalendarDate(raw: string): string {
+  const ymd = toPlainDateInputValue(raw)
+  if (!ymd) return '—'
+  const parts = ymd.split('-').map((n) => Number.parseInt(n, 10))
+  if (parts.length !== 3 || parts.some((x) => !Number.isFinite(x))) return '—'
+  const [y, m, d] = parts
+  const utc = new Date(Date.UTC(y, m - 1, d))
+  if (Number.isNaN(utc.getTime())) return '—'
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'UTC',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(utc)
+}
+
 export function currentMonth() {
   const now = new Date()
   return { month: now.getMonth() + 1, year: now.getFullYear() }

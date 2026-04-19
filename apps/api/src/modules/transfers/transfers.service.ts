@@ -1,4 +1,4 @@
-import { parsePlainDate } from '@financas/shared-types'
+import { parsePlainDate, wireTransactionDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import type { Prisma } from '@prisma/client'
 import type { CreateTransferInput, ListTransfersInput } from './transfers.schema.js'
@@ -35,10 +35,12 @@ export async function listTransfers(familyId: string, query: ListTransfersInput)
     prisma.transfer.count({ where }),
   ])
 
-  const data = rows.map((t: (typeof rows)[number]) => ({
-    ...t,
-    amount: Number(t.amount),
-  }))
+  const data = rows.map((t: (typeof rows)[number]) =>
+    wireTransactionDate({
+      ...t,
+      amount: Number(t.amount),
+    }),
+  )
 
   return {
     data,
@@ -113,13 +115,14 @@ export async function createTransfer(familyId: string, userId: string, input: Cr
       ],
     })
 
-    return tx.transfer.findUniqueOrThrow({
+    const tr = await tx.transfer.findUniqueOrThrow({
       where: { id: transfer.id },
       include: {
         fromAccount: { select: { id: true, name: true } },
         toAccount: { select: { id: true, name: true } },
       },
     })
+    return wireTransactionDate({ ...tr, amount: Number(tr.amount) })
   })
 }
 

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { GoalForm } from '@/components/forms/goal-form'
 import { useGoals, useDeleteGoal, type Goal } from '@/hooks/use-goals'
 import { useToast } from '@/components/ui/toast'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate } from '@/lib/utils'
 
 export default function MetasPage() {
   const { data: goals, isLoading } = useGoals()
@@ -87,7 +87,7 @@ export default function MetasPage() {
                   <div>
                     <p className="font-semibold text-foreground">{goal.name}</p>
                     {goal.deadline && (
-                      <p className="text-xs text-muted-foreground">Prazo: {formatDate(goal.deadline)}</p>
+                      <p className="text-xs text-muted-foreground">Prazo: {formatCalendarDate(goal.deadline)}</p>
                     )}
                   </div>
                   <div className="flex gap-1">

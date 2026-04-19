@@ -16,7 +16,7 @@ import {
   type Transaction,
 } from '@/hooks/use-transactions'
 import { useToast } from '@/components/ui/toast'
-import { formatCurrency, formatDate, cn } from '@/lib/utils'
+import { formatCurrency, formatCalendarDate, cn } from '@/lib/utils'
 
 export default function TransacoesLixeiraPage() {
   const { toast } = useToast()
@@ -155,7 +155,7 @@ export default function TransacoesLixeiraPage() {
                   <tbody className="divide-y divide-border">
                     {transactions.map((t) => (
                       <tr key={t.id} className="transition-colors hover:bg-muted/30">
-                        <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatDate(t.date)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-secondary-foreground">{formatCalendarDate(t.date)}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-foreground">{t.description}</p>
                           {t.notes && <p className="text-xs text-muted-foreground">{t.notes}</p>}
@@ -281,7 +281,7 @@ function TrashRow({
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <span className="whitespace-nowrap font-mono text-sm tabular-nums text-secondary-foreground">
-            {formatDate(t.date)}
+            {formatCalendarDate(t.date)}
           </span>
           <TrashAmount t={t} />
         </div>
