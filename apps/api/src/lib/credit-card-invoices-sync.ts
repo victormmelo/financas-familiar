@@ -167,7 +167,8 @@ export async function reconcileInvoiceStatesForCard(
       carriedFromPrevious = 0
     } else {
       outstandingAmount = Math.max(0, totalAmount - paymentAmount)
-      carriedFromPrevious = outstandingAmount
+      const shouldCarryForward = outstandingAmount > 0 && today > dueDate
+      carriedFromPrevious = shouldCarryForward ? outstandingAmount : 0
       if (outstandingAmount <= 0) {
         status = 'PAID'
       } else if (today > dueDate) {
