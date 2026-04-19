@@ -1,6 +1,7 @@
 import { wireTransactionDate } from '@financas/shared-types'
 import { prisma } from '../../lib/prisma.js'
 import { netCardSpendingInPeriod } from '../../lib/credit-card-spending.js'
+import { ensureInvoiceRowsForCreditCardFromActivity } from '../../lib/credit-card-invoices-sync.js'
 import type { Prisma } from '@prisma/client'
 import type {
   CreateCreditCardInput,
@@ -128,6 +129,8 @@ export async function listInvoices(
 ) {
   const card = await prisma.creditCard.findFirst({ where: { id: cardId, familyId } })
   if (!card) throw Object.assign(new Error('Cartão não encontrado'), { statusCode: 404 })
+
+  await ensureInvoiceRowsForCreditCardFromActivity(card.id, card.closingDay)
 
   const { page, limit, status } = query
   const skip = (page - 1) * limit
