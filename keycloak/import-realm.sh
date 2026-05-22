@@ -23,10 +23,11 @@ sed \
   -e "s|__MCP_RESOURCE_IDENTIFIER__|$(escape "${MCP_RESOURCE_IDENTIFIER}")|g" \
   "$template" > "$output"
 
-echo "INFO: Realm importado. ChatGPT (DCR): se o registo dinâmico falhar com Trusted Hosts, após o Keycloak estar acessível execute: npm run keycloak:patch-dcr (KEYCLOAK_BASE_URL, KEYCLOAK_REALM, KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD)." >&2
+echo "INFO: Template do realm preparado. O import só criará o realm se ele ainda não existir; realms existentes serão preservados." >&2
+echo "INFO: ChatGPT (DCR): se o registo dinâmico falhar com Trusted Hosts, após o Keycloak estar acessível execute: npm run keycloak:patch-dcr (KEYCLOAK_BASE_URL, KEYCLOAK_REALM, KEYCLOAK_ADMIN, KEYCLOAK_ADMIN_PASSWORD)." >&2
 echo "INFO: ChatGPT — client scope: anexe 'mcp-resource-audience' aos Default Client Scopes do realm se clients dinâmicos não herdarem o aud do MCP." >&2
 
-/opt/keycloak/bin/kc.sh import --file "$output" --override true
+/opt/keycloak/bin/kc.sh import --file "$output" --override false
 
 # O import JSON não aplica de forma confiável clientRoles de realm-management ao service account.
 # Garantimos permissões via Admin CLI após o servidor responder (mesmo após restarts).
